@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/extract-response.json",
+  "title": "ExtractResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["model_id", "entities", "relations", "emotion", "uncertainty"],
+  "properties": {
+    "model_id": { "type": "string" },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label", "kind"],
+        "properties": {
+          "label": { "type": "string" },
+          "kind": { "type": "string" },
+          "span_start": { "type": ["integer", "null"] },
+          "span_end": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["subject", "predicate", "object"],
+        "properties": {
+          "subject": { "type": "string" },
+          "predicate": { "type": "string" },
+          "object": { "type": "string" },
+          "confidence": { "type": ["number", "null"] }
+        }
+      }
+    },
+    "emotion": {
+      "type": ["object", "null"],
+      "properties": {
+        "label": { "type": "string" },
+        "intensity": { "type": ["number", "null"] }
+      }
+    },
+    "uncertainty": {
+      "type": ["object", "null"],
+      "properties": {
+        "phrases": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

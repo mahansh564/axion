@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/extract-request.json",
+  "title": "ExtractRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["document_id", "text"],
+  "properties": {
+    "document_id": { "type": "string" },
+    "text": { "type": "string" },
+    "trace_id": { "type": "string" }
+  }
+}

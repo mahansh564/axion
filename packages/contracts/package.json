@@ -1,0 +1,12 @@
+{
+  "name": "@axion/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "mkdir -p dist && node -e \"require('fs').writeFileSync('dist/.buildstamp', '')\"",
+    "lint": "node -e \"console.log('no-op')\"",
+    "test": "node -e \"console.log('no-op')\"",
+    "typecheck": "node -e \"console.log('no-op')\"",
+    "dev": "node -e \"console.log('no-op')\""
+  }
+}

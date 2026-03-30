@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/transcribe-request.json",
+  "title": "TranscribeRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["audio_base64", "mime_type"],
+  "properties": {
+    "audio_base64": { "type": "string", "contentEncoding": "base64" },
+    "mime_type": { "type": "string" },
+    "trace_id": { "type": "string" }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/transcribe-response.json",
+  "title": "TranscribeResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["text", "model_id"],
+  "properties": {
+    "text": { "type": "string" },
+    "model_id": { "type": "string" },
+    "language": { "type": ["string", "null"] }
+  }
+}
