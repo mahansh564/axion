@@ -1,0 +1,17 @@
+{
+  "name": "axion",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "test": "turbo run test --concurrency=1",
+    "typecheck": "turbo run typecheck",
+    "verify": "turbo run lint typecheck test build --concurrency=1"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  }
+}
