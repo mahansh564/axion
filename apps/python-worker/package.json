@@ -1,0 +1,11 @@
+{
+  "name": "@axion/python-worker",
+  "private": true,
+  "scripts": {
+    "build": "mkdir -p dist && node -e \"require('fs').writeFileSync('dist/.buildstamp', '')\"",
+    "lint": "bash scripts/ensure-venv.sh && .venv/bin/python -m ruff check src tests && .venv/bin/python -m ruff format --check src tests",
+    "test": "bash scripts/ensure-venv.sh && .venv/bin/python -m pytest -q",
+    "typecheck": "bash scripts/ensure-venv.sh && .venv/bin/python -m mypy -p axion_worker",
+    "dev": "bash scripts/ensure-venv.sh && .venv/bin/python -m uvicorn axion_worker.main:app --reload --host 127.0.0.1 --port 8000"
+  }
+}
