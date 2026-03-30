@@ -1,0 +1,15 @@
+import pino from "pino";
+
+export const rootLogger = pino({
+  level: process.env.LOG_LEVEL ?? "info",
+  formatters: {
+    level(label) {
+      return { level: label };
+    },
+  },
+  base: undefined,
+});
+
+export function withTrace(traceId: string) {
+  return rootLogger.child({ trace_id: traceId });
+}
