@@ -267,6 +267,38 @@ export const overnightSchedules = sqliteTable(
   ],
 );
 
+export const evaluationGoldenCases = sqliteTable(
+  "evaluation_golden_cases",
+  {
+    id: text("id").primaryKey(),
+    question: text("question").notNull(),
+    expectedAnswer: text("expected_answer").notNull(),
+    status: text("status").notNull(),
+    metadata: text("metadata"),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [index("evaluation_golden_cases_status_idx").on(t.status), index("evaluation_golden_cases_updated_idx").on(t.updatedAt)],
+);
+
+export const evaluationRuns = sqliteTable(
+  "evaluation_runs",
+  {
+    id: text("id").primaryKey(),
+    status: text("status").notNull(),
+    goldenSetVersion: integer("golden_set_version", { mode: "number" }).notNull(),
+    goldenCaseCount: integer("golden_case_count", { mode: "number" }).notNull(),
+    passThreshold: real("pass_threshold").notNull(),
+    caseCount: integer("case_count", { mode: "number" }).notNull(),
+    passedCaseCount: integer("passed_case_count", { mode: "number" }).notNull(),
+    failedCaseCount: integer("failed_case_count", { mode: "number" }).notNull(),
+    notes: text("notes"),
+    metadata: text("metadata"),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [index("evaluation_runs_created_idx").on(t.createdAt), index("evaluation_runs_status_idx").on(t.status)],
+);
+
 export const graphNodes = sqliteTable(
   "graph_nodes",
   {
