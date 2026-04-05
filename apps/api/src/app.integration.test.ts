@@ -585,4 +585,173 @@ describe("axion api integration", () => {
     };
     expect(berlinBody.beliefs.some((belief) => belief.source_kind === "stance_aggregate")).toBe(true);
   });
+
+  it("supports stage 4 subgraph, timeline markers, and visualization views", async () => {
+    const form = new FormData();
+    form.append("file", Buffer.from("stage4-audio"), {
+      filename: "stage4.wav",
+      contentType: "audio/wav",
+    });
+    const ingest = await app.inject({
+      method: "POST",
+      url: "/experiences/voice",
+      payload: form,
+      headers: form.getHeaders(),
+    });
+    expect(ingest.statusCode).toBe(200);
+
+    const create = await app.inject({
+      method: "POST",
+      url: "/research/runs",
+      payload: { goal: "Rapamycin longevity marker timeline stage 4" },
+      headers: { "content-type": "application/json" },
+    });
+    expect(create.statusCode).toBe(201);
+    const created = JSON.parse(create.body) as { run_id: string };
+
+    const execute = await app.inject({
+      method: "POST",
+      url: `/research/runs/${created.run_id}/execute`,
+    });
+    expect(execute.statusCode).toBe(200);
+
+    const { db } = await import("./db/client.js");
+    const { observerNotes, researchArtifacts } = await import("./db/schema.js");
+    const seedArtifact = await db
+      .select()
+      .from(researchArtifacts)
+      .where(eq(researchArtifacts.runId, created.run_id))
+      .get();
+    expect(seedArtifact?.id).toBeTruthy();
+    await db.insert(observerNotes).values({
+      id: randomUUID(),
+      runId: created.run_id,
+      stepId: null,
+      artifactId: seedArtifact?.id ?? null,
+      kind: "candidate_belief",
+      status: "approved",
+      summary: "Rapamycin longevity evidence remains mixed but promising in selective cohorts.",
+      confidence: 0.72,
+      payload: JSON.stringify({ topic: "rapamycin longevity" }),
+      createdAt: Date.now(),
+    });
+
+    const synthesis = await app.inject({
+      method: "POST",
+      url: "/synthesis/runs",
+      payload: { confidence_threshold: 0.6, confirm_required: true },
+      headers: { "content-type": "application/json" },
+    });
+    expect(synthesis.statusCode).toBe(201);
+
+    const subgraph = await app.inject({
+      method: "GET",
+      url: "/beliefs/subgraph?topic=berlin&confidence_min=0.4",
+    });
+    expect(subgraph.statusCode).toBe(200);
+    const subgraphBody = JSON.parse(subgraph.body) as {
+      nodes: Array<{ label: string }>;
+      edges: Array<{ confidence: number | null }>;
+      stats: { node_count: number; edge_count: number };
+    };
+    expect(subgraphBody.stats.node_count).toBeGreaterThan(0);
+    expect(subgraphBody.stats.edge_count).toBeGreaterThan(0);
+    expect(subgraphBody.nodes.some((node) => node.label.toLowerCase().includes("berlin"))).toBe(true);
+    expect(
+      subgraphBody.edges.every((edge) => edge.confidence === null || edge.confidence >= 0.4),
+    ).toBe(true);
+
+    const subgraphAll = await app.inject({
+      method: "GET",
+      url: "/beliefs/subgraph?confidence_min=0.4",
+    });
+    expect(subgraphAll.statusCode).toBe(200);
+    const subgraphAllBody = JSON.parse(subgraphAll.body) as {
+      nodes: Array<{ node_type: string }>;
+      edges: Array<{ edge_type: string }>;
+    };
+    expect(subgraphAllBody.nodes.some((node) => node.node_type === "experience")).toBe(true);
+    expect(subgraphAllBody.nodes.some((node) => node.node_type === "research")).toBe(true);
+    expect(subgraphAllBody.nodes.some((node) => node.node_type === "belief")).toBe(true);
+    expect(subgraphAllBody.edges.some((edge) => edge.edge_type === "experience_relation")).toBe(true);
+    expect(subgraphAllBody.edges.some((edge) => edge.edge_type === "belief_evidence")).toBe(true);
+
+    const timeline = await app.inject({
+      method: "GET",
+      url: "/timeline/events?topic=rapamycin%20longevity",
+    });
+    expect(timeline.statusCode).toBe(200);
+    const timelineBody = JSON.parse(timeline.body) as {
+      events: Array<{ kind: string; event_type: string }>;
+    };
+    expect(timelineBody.events.some((event) => event.kind === "belief_record")).toBe(true);
+    expect(
+      timelineBody.events.some((event) =>
+        ["research_run_requested", "research_run_started", "research_run_completed"].includes(event.event_type),
+      ),
+    ).toBe(true);
+
+    const graphView = await app.inject({ method: "GET", url: "/beliefs/graph" });
+    expect(graphView.statusCode).toBe(200);
+    expect(graphView.headers["content-type"]).toContain("text/html");
+    expect(graphView.body).toContain("Graph Explorer");
+    expect(graphView.body).toContain("experience/research/belief node cues");
+    expect(graphView.body).toContain("API Key (optional)");
+
+    const timelineView = await app.inject({ method: "GET", url: "/beliefs/timeline/view" });
+    expect(timelineView.statusCode).toBe(200);
+    expect(timelineView.body).toContain("Belief + Activity Timeline");
+    expect(timelineView.body).toContain("major ingest/research markers");
+
+    const replayView = await app.inject({
+      method: "GET",
+      url: `/runs/${created.run_id}/replay/view`,
+    });
+    expect(replayView.statusCode).toBe(200);
+    expect(replayView.body).toContain("Research Replay");
+    expect(replayView.body).toContain("run steps, episodic events, and artifacts");
+  });
+
+  it("accepts api_key query fallback for visualization routes when API_KEY is enabled", async () => {
+    const authRoot = mkdtempSync(join(tmpdir(), "axion-api-auth-"));
+    const oldDataDir = process.env.DATA_DIR;
+    const oldDbUrl = process.env.DATABASE_URL;
+    const oldApiKey = process.env.API_KEY;
+    const oldWorkerUrl = process.env.PYTHON_WORKER_URL;
+
+    process.env.DATA_DIR = authRoot;
+    process.env.DATABASE_URL = join(authRoot, "auth.db");
+    process.env.PYTHON_WORKER_URL = "http://worker.test";
+    process.env.API_KEY = "stage4-secret";
+
+    vi.resetModules();
+    const { runMigrations } = await import("./db/client.js");
+    runMigrations();
+    const { buildApp } = await import("./app.js");
+    const authApp = await buildApp();
+    await authApp.ready();
+
+    const unauthorized = await authApp.inject({ method: "GET", url: "/beliefs/graph" });
+    expect(unauthorized.statusCode).toBe(401);
+
+    const graphWithQueryKey = await authApp.inject({
+      method: "GET",
+      url: "/beliefs/graph?api_key=stage4-secret",
+    });
+    expect(graphWithQueryKey.statusCode).toBe(200);
+
+    const timelineWithQueryKey = await authApp.inject({
+      method: "GET",
+      url: "/timeline/events?api_key=stage4-secret",
+    });
+    expect(timelineWithQueryKey.statusCode).toBe(200);
+
+    await authApp.close();
+    rmSync(authRoot, { recursive: true, force: true });
+
+    process.env.DATA_DIR = oldDataDir;
+    process.env.DATABASE_URL = oldDbUrl;
+    process.env.API_KEY = oldApiKey;
+    process.env.PYTHON_WORKER_URL = oldWorkerUrl;
+  });
 });
