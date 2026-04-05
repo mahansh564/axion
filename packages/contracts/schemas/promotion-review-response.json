@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/promotion-review-response.json",
+  "title": "PromotionReviewResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["note_id", "decision", "review_id", "status"],
+  "properties": {
+    "note_id": { "type": "string" },
+    "decision": { "type": "string", "enum": ["approved", "rejected"] },
+    "review_id": { "type": "string" },
+    "status": { "type": "string", "enum": ["approved", "rejected"] }
+  }
+}

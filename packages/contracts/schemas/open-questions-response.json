@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/open-questions-response.json",
+  "title": "OpenQuestionsResponse",
+  "type": "object",
+  "required": ["open_questions"],
+  "properties": {
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "topic",
+          "status",
+          "linked_task_id",
+          "resolution_belief_id",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "question": { "type": "string", "minLength": 1 },
+          "topic": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["open", "researching", "resolved"] },
+          "linked_task_id": { "type": ["string", "null"] },
+          "resolution_belief_id": { "type": ["string", "null"] },
+          "metadata": { "type": ["object", "null"] },
+          "created_at": { "type": "integer" },
+          "updated_at": { "type": "integer" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

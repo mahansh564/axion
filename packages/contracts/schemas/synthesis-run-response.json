@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/synthesis-run-response.json",
+  "title": "SynthesisRunResponse",
+  "type": "object",
+  "required": ["created_count", "deferred_count", "skipped_count", "created_ids"],
+  "properties": {
+    "created_count": { "type": "integer", "minimum": 0 },
+    "deferred_count": { "type": "integer", "minimum": 0 },
+    "skipped_count": { "type": "integer", "minimum": 0 },
+    "created_ids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

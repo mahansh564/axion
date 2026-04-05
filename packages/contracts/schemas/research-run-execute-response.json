@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/research-run-execute-response.json",
+  "title": "ResearchRunExecuteResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "status", "step_count", "artifact_count", "completed_at", "error"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "status": { "type": "string", "enum": ["completed", "failed"] },
+    "step_count": { "type": "integer", "minimum": 0 },
+    "artifact_count": { "type": "integer", "minimum": 0 },
+    "completed_at": { "type": "integer" },
+    "error": { "type": ["string", "null"] }
+  }
+}

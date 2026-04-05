@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/research-run-replay-response.json",
+  "title": "ResearchRunReplayResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task", "run", "steps", "artifacts", "events"],
+  "properties": {
+    "task": { "type": "object" },
+    "run": { "type": "object" },
+    "steps": { "type": "array", "items": { "type": "object" } },
+    "artifacts": { "type": "array", "items": { "type": "object" } },
+    "events": { "type": "array", "items": { "type": "object" } }
+  }
+}

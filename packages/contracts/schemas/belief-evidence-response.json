@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/belief-evidence-response.json",
+  "title": "BeliefEvidenceResponse",
+  "type": "object",
+  "required": ["belief", "evidence"],
+  "properties": {
+    "belief": {
+      "type": ["object", "null"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "statement": { "type": "string", "minLength": 1 },
+        "topic": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "source_kind": { "type": "string", "minLength": 1 },
+        "valid_from": { "type": "integer" },
+        "valid_to": { "type": ["integer", "null"] }
+      },
+      "required": ["id", "statement", "topic", "confidence", "source_kind", "valid_from", "valid_to"],
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "evidence_type", "ref_id", "excerpt", "metadata", "details", "created_at"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "evidence_type": { "type": "string", "minLength": 1 },
+          "ref_id": { "type": ["string", "null"] },
+          "excerpt": { "type": ["string", "null"] },
+          "metadata": { "type": ["object", "null"] },
+          "details": { "type": ["object", "null"] },
+          "created_at": { "type": "integer" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

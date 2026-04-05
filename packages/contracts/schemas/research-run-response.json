@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/research-run-response.json",
+  "title": "ResearchRunResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "run_id", "status", "trigger_mode", "created_at"],
+  "properties": {
+    "task_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "status": { "type": "string", "const": "queued" },
+    "trigger_mode": { "type": "string", "const": "manual" },
+    "created_at": { "type": "integer" }
+  }
+}
