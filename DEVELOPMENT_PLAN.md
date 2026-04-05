@@ -330,7 +330,7 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 - [x] Contradiction detection + `contradiction_candidates` API
 - [x] User resolution flow (validity updates, new beliefs; no silent deletes)
 - [x] Curiosity signals + ranked suggestions (research / reflection)
-- [ ] Overnight scheduler: budgets, allowlists, observability
+- [x] Overnight scheduler: budgets, allowlists, observability
 - [ ] Overnight runs use observer loop + promotion gate before any durable task/belief promotion
 - [ ] Evaluation gate on unattended writes (when golden set exists)
 

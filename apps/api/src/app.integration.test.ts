@@ -1319,6 +1319,135 @@ describe("axion api integration", () => {
     ).toBe(true);
   });
 
+  it("supports stage 5 overnight scheduler budgets, allowlists, and observability", async () => {
+    const createSchedule = await app.inject({
+      method: "POST",
+      url: "/overnight/schedules",
+      payload: {
+        name: "Nightly longevity scan",
+        goal: "Compare rapamycin longevity evidence in humans",
+        notes: "Prefer literature reviews and unresolved caveats",
+        hour_utc: 2,
+        minute_utc: 15,
+        budget: {
+          max_runs_per_night: 1,
+          max_subquestions: 3,
+          max_search_results: 1,
+          max_fetches: 1,
+          max_artifacts: 8,
+          max_runtime_minutes: 5,
+        },
+        allowlist_domains: ["example.com", "example.com", "invalid domain"],
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(createSchedule.statusCode).toBe(201);
+    const scheduleBody = JSON.parse(createSchedule.body) as {
+      id: string;
+      budget: { max_runs_per_night: number; max_search_results: number };
+      allowlist_domains: string[];
+      status: string;
+    };
+    expect(scheduleBody.id).toBeTruthy();
+    expect(scheduleBody.status).toBe("active");
+    expect(scheduleBody.budget.max_runs_per_night).toBe(1);
+    expect(scheduleBody.budget.max_search_results).toBe(1);
+    expect(scheduleBody.allowlist_domains).toEqual(["example.com"]);
+
+    const listSchedules = await app.inject({
+      method: "GET",
+      url: "/overnight/schedules?status=active",
+    });
+    expect(listSchedules.statusCode).toBe(200);
+    const listBody = JSON.parse(listSchedules.body) as { schedules: Array<{ id: string }> };
+    expect(listBody.schedules.some((schedule) => schedule.id === scheduleBody.id)).toBe(true);
+
+    const dispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: {
+        force: true,
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(dispatch.statusCode).toBe(200);
+    const dispatchBody = JSON.parse(dispatch.body) as {
+      force: boolean;
+      schedule_count: number;
+      results: Array<{
+        schedule_id: string;
+        status: string;
+        run_id: string | null;
+        reason: string | null;
+      }>;
+    };
+    expect(dispatchBody.force).toBe(true);
+    expect(dispatchBody.schedule_count).toBeGreaterThan(0);
+    const ownResult = dispatchBody.results.find((result) => result.schedule_id === scheduleBody.id);
+    expect(ownResult).toBeTruthy();
+    expect(ownResult?.status).toBe("completed");
+    expect(ownResult?.run_id).toBeTruthy();
+    expect(ownResult?.reason).toBeNull();
+
+    const runId = ownResult?.run_id as string;
+    const replay = await app.inject({
+      method: "GET",
+      url: `/runs/${runId}/replay`,
+    });
+    expect(replay.statusCode).toBe(200);
+    const replayBody = JSON.parse(replay.body) as {
+      run: { task_id: string; trigger_mode: string; input: { execution_policy?: { allowlist_domains?: string[] } } };
+    };
+    expect(replayBody.run.trigger_mode).toBe("overnight");
+    expect(replayBody.run.input.execution_policy?.allowlist_domains).toEqual(["example.com"]);
+
+    const { db } = await import("./db/client.js");
+    const { episodicEvents, executionRuns, overnightSchedules, researchArtifacts, researchTasks } =
+      await import("./db/schema.js");
+
+    const taskRow = await db.select().from(researchTasks).where(eq(researchTasks.id, replayBody.run.task_id)).get();
+    expect(taskRow?.triggerMode).toBe("overnight");
+    expect(taskRow?.metadata).toContain(scheduleBody.id);
+
+    const runRow = await db.select().from(executionRuns).where(eq(executionRuns.id, runId)).get();
+    expect(runRow?.triggerMode).toBe("overnight");
+    expect(runRow?.input).toContain("\"execution_policy\"");
+
+    const scheduleRow = await db.select().from(overnightSchedules).where(eq(overnightSchedules.id, scheduleBody.id)).get();
+    expect(scheduleRow?.runsTodayCount).toBe(1);
+    expect(scheduleRow?.lastRunId).toBe(runId);
+    expect(scheduleRow?.lastRunStatus).toBe("completed");
+
+    const artifactRows = await db.select().from(researchArtifacts).where(eq(researchArtifacts.runId, runId)).all();
+    const urlHosts = artifactRows
+      .map((artifact) => artifact.url)
+      .filter((url): url is string => typeof url === "string")
+      .map((url) => new URL(url).hostname);
+    expect(urlHosts.every((host) => host === "example.com")).toBe(true);
+
+    const allEvents = await db.select().from(episodicEvents).all();
+    expect(allEvents.some((event) => event.eventType === "overnight_scheduler_run_started")).toBe(true);
+    expect(allEvents.some((event) => event.eventType === "overnight_run_scheduled")).toBe(true);
+    expect(allEvents.some((event) => event.eventType === "overnight_run_completed")).toBe(true);
+    expect(allEvents.some((event) => event.eventType === "research_budget_guardrail_triggered")).toBe(true);
+
+    const secondDispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: {
+        force: true,
+        schedule_id: scheduleBody.id,
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(secondDispatch.statusCode).toBe(200);
+    const secondBody = JSON.parse(secondDispatch.body) as {
+      results: Array<{ status: string; reason: string | null }>;
+    };
+    expect(secondBody.results[0]?.status).toBe("skipped");
+    expect(secondBody.results[0]?.reason).toBe("max_runs_per_night_reached");
+  });
+
   it("requires auth on data routes when API_KEY is enabled", async () => {
     const authRoot = mkdtempSync(join(tmpdir(), "axion-api-auth-"));
     const oldDataDir = process.env.DATA_DIR;
