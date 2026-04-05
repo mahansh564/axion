@@ -2,7 +2,7 @@
 
 This document expands [plan.md](plan.md) into a **full multi-stage engineering roadmap**: what to build, in what order, with extension points and risks. It is the canonical **delivery** companion to the product vision in `plan.md`.
 
-**Repo status:** Stages **0–4** are implemented in-tree (see [README.md](README.md), `apps/api`, `apps/python-worker`, `packages/contracts`). Stages **5+** remain roadmap; checklists in §17 reflect completed vs pending work.
+**Repo status:** Stages **0–4** are implemented in-tree (see [README.md](README.md), `apps/api`, `apps/python-worker`, `packages/contracts`). Stage **5+** work is in progress roadmap; checklists in §17 reflect completed vs pending items.
 
 ---
 
@@ -329,7 +329,7 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 
 - [x] Contradiction detection + `contradiction_candidates` API
 - [x] User resolution flow (validity updates, new beliefs; no silent deletes)
-- [ ] Curiosity signals + ranked suggestions (research / reflection)
+- [x] Curiosity signals + ranked suggestions (research / reflection)
 - [ ] Overnight scheduler: budgets, allowlists, observability
 - [ ] Overnight runs use observer loop + promotion gate before any durable task/belief promotion
 - [ ] Evaluation gate on unattended writes (when golden set exists)

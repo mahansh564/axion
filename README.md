@@ -64,6 +64,7 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
    - `GET /contradiction-candidates` — Stage 5 contradiction candidates from active belief conflicts + observer contradiction flags
    - `POST /contradictions/resolve` — resolve a contradiction candidate with belief invalidation, superseding belief creation, or keep-both audit-only decisions
    - `GET /contradictions/resolutions` — audit trail of contradiction resolutions (filterable by `candidate_id`)
+   - `GET /curiosity/suggestions` — ranked Stage 5 curiosity suggestions (research tasks + reflection prompts) from dormant open questions, recurring uncertainty signals, and repeated confusion phrases
    - `GET /timeline/events` — merged belief + major ingest/research timeline markers for visualization
    - `POST /beliefs/aggregate-stances` — derive low-confidence stance beliefs from transcript language
    - `POST /open-questions` / `GET /open-questions` / `PATCH /open-questions/:id` — open-question lifecycle + optional research-task linkage
