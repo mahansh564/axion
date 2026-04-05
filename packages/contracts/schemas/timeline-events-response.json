@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion/contracts/timeline-events-response.json",
+  "title": "TimelineEventsResponse",
+  "type": "object",
+  "required": ["filters", "events"],
+  "properties": {
+    "filters": {
+      "type": "object",
+      "required": ["topic", "time_from", "time_to", "limit"],
+      "properties": {
+        "topic": { "type": ["string", "null"] },
+        "time_from": { "type": ["number", "null"] },
+        "time_to": { "type": ["number", "null"] },
+        "limit": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "event_type",
+          "occurred_at",
+          "title",
+          "topic",
+          "confidence",
+          "metadata"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["belief_record", "episodic_event"] },
+          "event_type": { "type": "string" },
+          "occurred_at": { "type": "number" },
+          "title": { "type": "string" },
+          "topic": { "type": ["string", "null"] },
+          "confidence": { "type": ["number", "null"] },
+          "metadata": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

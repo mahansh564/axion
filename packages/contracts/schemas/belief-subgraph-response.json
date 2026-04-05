@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion/contracts/belief-subgraph-response.json",
+  "title": "BeliefSubgraphResponse",
+  "type": "object",
+  "required": ["filters", "nodes", "edges", "stats"],
+  "properties": {
+    "filters": {
+      "type": "object",
+      "required": ["topic", "time_from", "time_to", "confidence_min"],
+      "properties": {
+        "topic": { "type": ["string", "null"] },
+        "time_from": { "type": ["number", "null"] },
+        "time_to": { "type": ["number", "null"] },
+        "confidence_min": { "type": ["number", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "node_type", "kind", "label", "confidence", "document_id", "valid_from", "valid_to"],
+        "properties": {
+          "id": { "type": "string" },
+          "node_type": { "enum": ["experience", "research", "belief"] },
+          "kind": { "type": "string" },
+          "label": { "type": "string" },
+          "confidence": { "type": ["number", "null"] },
+          "document_id": { "type": ["string", "null"] },
+          "valid_from": { "type": "number" },
+          "valid_to": { "type": ["number", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "edge_type",
+          "src_id",
+          "dst_id",
+          "predicate",
+          "confidence",
+          "document_id",
+          "valid_from",
+          "valid_to"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "edge_type": { "enum": ["experience_relation", "belief_evidence", "belief_supersedes"] },
+          "src_id": { "type": "string" },
+          "dst_id": { "type": "string" },
+          "predicate": { "type": "string" },
+          "confidence": { "type": ["number", "null"] },
+          "document_id": { "type": ["string", "null"] },
+          "valid_from": { "type": "number" },
+          "valid_to": { "type": ["number", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "stats": {
+      "type": "object",
+      "required": ["node_count", "edge_count"],
+      "properties": {
+        "node_count": { "type": "number" },
+        "edge_count": { "type": "number" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -30,6 +30,13 @@ import {
   oneHopNeighbors,
   questionKeywords,
 } from "./search.js";
+import {
+  getBeliefSubgraph,
+  listTimelineEvents,
+  renderGraphViewHtml,
+  renderReplayViewHtml,
+  renderTimelineViewHtml,
+} from "./visualization.js";
 
 export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
   const app = Fastify({
@@ -60,6 +67,20 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     return url.split("?")[0] ?? url;
   }
 
+  function apiKeyFromUrl(url: string): string | null {
+    const query = url.split("?")[1];
+    if (!query) return null;
+    const params = new URLSearchParams(query);
+    const value = params.get("api_key");
+    return value && value.length > 0 ? value : null;
+  }
+
+  function parseOptionalNumber(value: string | undefined): number | undefined {
+    if (!value) return undefined;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+  }
+
   app.addHook("onRequest", async (req, reply) => {
     const traceId = getTraceId(req);
     (req as FastifyRequest & { traceId: string }).traceId = traceId;
@@ -67,7 +88,10 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     const path = pathOnly(req.url);
     if (env.API_KEY && path !== "/health" && path !== "/ready") {
       const auth = req.headers.authorization;
-      const ok = typeof auth === "string" && auth === `Bearer ${env.API_KEY}`;
+      const bearer =
+        typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : null;
+      const queryApiKey = apiKeyFromUrl(req.url);
+      const ok = bearer === env.API_KEY || queryApiKey === env.API_KEY;
       if (!ok) {
         return reply.status(401).send({ error: "unauthorized" });
       }
@@ -247,6 +271,43 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     await reply.send({ beliefs: timeline });
   });
 
+  app.get("/beliefs/subgraph", async (req, reply) => {
+    const query = req.query as {
+      topic?: string;
+      time_from?: string;
+      time_to?: string;
+      confidence_min?: string;
+      max_nodes?: string;
+      max_edges?: string;
+    };
+
+    const payload = await getBeliefSubgraph({
+      topic: query.topic,
+      timeFrom: parseOptionalNumber(query.time_from),
+      timeTo: parseOptionalNumber(query.time_to),
+      confidenceMin: parseOptionalNumber(query.confidence_min),
+      maxNodes: parseOptionalNumber(query.max_nodes),
+      maxEdges: parseOptionalNumber(query.max_edges),
+    });
+    await reply.send(payload);
+  });
+
+  app.get("/timeline/events", async (req, reply) => {
+    const query = req.query as {
+      topic?: string;
+      time_from?: string;
+      time_to?: string;
+      limit?: string;
+    };
+    const payload = await listTimelineEvents({
+      topic: query.topic,
+      timeFrom: parseOptionalNumber(query.time_from),
+      timeTo: parseOptionalNumber(query.time_to),
+      limit: parseOptionalNumber(query.limit),
+    });
+    await reply.send(payload);
+  });
+
   app.get("/beliefs/:id/evidence", async (req, reply) => {
     const id = (req.params as { id: string }).id;
     const payload = await getBeliefEvidence(id);
@@ -382,6 +443,22 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
       return;
     }
     await reply.send(row);
+  });
+
+  app.get("/beliefs/graph", async (_req, reply) => {
+    reply.type("text/html; charset=utf-8");
+    await reply.send(renderGraphViewHtml());
+  });
+
+  app.get("/beliefs/timeline/view", async (_req, reply) => {
+    reply.type("text/html; charset=utf-8");
+    await reply.send(renderTimelineViewHtml());
+  });
+
+  app.get("/runs/:id/replay/view", async (req, reply) => {
+    const runId = (req.params as { id: string }).id;
+    reply.type("text/html; charset=utf-8");
+    await reply.send(renderReplayViewHtml(runId));
   });
 
   app.post("/qa", async (req, reply) => {
