@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/curiosity-suggestions-response.json",
+  "title": "CuriositySuggestionsResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["generated_at", "suggestions"],
+  "properties": {
+    "generated_at": { "type": "integer" },
+    "suggestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "suggestion_type",
+          "signal_type",
+          "topic",
+          "prompt",
+          "score",
+          "detected_at",
+          "evidence"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "suggestion_type": { "type": "string", "enum": ["research_task", "reflection_prompt"] },
+          "signal_type": {
+            "type": "string",
+            "enum": ["dormant_open_question", "recurring_topic", "repeated_confusion_phrase"]
+          },
+          "topic": { "type": "string" },
+          "prompt": { "type": "string" },
+          "score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "detected_at": { "type": "integer" },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}

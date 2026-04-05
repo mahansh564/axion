@@ -12,6 +12,7 @@ import {
   listContradictionResolutions,
   resolveContradiction,
 } from "./contradictionPipeline.js";
+import { listCuriositySuggestions } from "./curiosityPipeline.js";
 import { env } from "./env.js";
 import { ingestVoiceNote } from "./experiencePipeline.js";
 import { withTrace } from "./log.js";
@@ -415,6 +416,22 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     const payload = await listContradictionResolutions({
       candidateId: query.candidate_id,
       limit: parseOptionalNumber(query.limit),
+    });
+    await reply.send(payload);
+  });
+
+  app.get("/curiosity/suggestions", async (req, reply) => {
+    const query = req.query as {
+      topic?: string;
+      limit?: string;
+      min_score?: string;
+      dormant_days?: string;
+    };
+    const payload = await listCuriositySuggestions({
+      topic: query.topic,
+      limit: parseOptionalNumber(query.limit),
+      minScore: parseOptionalNumber(query.min_score),
+      dormantDays: parseOptionalNumber(query.dormant_days),
     });
     await reply.send(payload);
   });
