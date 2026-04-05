@@ -332,7 +332,7 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 - [x] Curiosity signals + ranked suggestions (research / reflection)
 - [x] Overnight scheduler: budgets, allowlists, observability
 - [x] Overnight runs use observer loop + promotion gate before any durable task/belief promotion
-- [ ] Evaluation gate on unattended writes (when golden set exists)
+- [x] Evaluation gate on unattended writes (when golden set exists)
 
 ### Stage 6 — Breadth + evaluation
 

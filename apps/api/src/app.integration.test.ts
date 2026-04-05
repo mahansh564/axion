@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import FormData from "form-data";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -1548,6 +1548,301 @@ describe("axion api integration", () => {
       .where(eq(promotionReviews.noteId, overnightCandidate.id))
       .get();
     expect(promotionReview?.decision).toBe("approved");
+  });
+
+  it("applies the evaluation gate to unattended overnight dispatches only, with golden-set revision checks", async () => {
+    const nowUtc = new Date();
+    const createManualSchedule = await app.inject({
+      method: "POST",
+      url: "/overnight/schedules",
+      payload: {
+        name: "Manual overnight override check",
+        goal: "Allow attended manual runs while unattended gate is red",
+        hour_utc: nowUtc.getUTCHours(),
+        minute_utc: nowUtc.getUTCMinutes(),
+        budget: {
+          max_runs_per_night: 1,
+          max_subquestions: 2,
+          max_search_results: 2,
+          max_fetches: 1,
+          max_artifacts: 6,
+          max_runtime_minutes: 5,
+        },
+        allowlist_domains: ["example.com"],
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(createManualSchedule.statusCode).toBe(201);
+    const manualSchedule = JSON.parse(createManualSchedule.body) as { id: string };
+
+    const createUnattendedSchedule = await app.inject({
+      method: "POST",
+      url: "/overnight/schedules",
+      payload: {
+        name: "Unattended evaluation gate check",
+        goal: "Run unattended research only when quality gates are green",
+        hour_utc: nowUtc.getUTCHours(),
+        minute_utc: nowUtc.getUTCMinutes(),
+        budget: {
+          max_runs_per_night: 1,
+          max_subquestions: 2,
+          max_search_results: 2,
+          max_fetches: 1,
+          max_artifacts: 6,
+          max_runtime_minutes: 5,
+        },
+        allowlist_domains: ["example.com"],
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(createUnattendedSchedule.statusCode).toBe(201);
+    const unattendedSchedule = JSON.parse(createUnattendedSchedule.body) as { id: string };
+
+    const { db } = await import("./db/client.js");
+    const { episodicEvents, evaluationGoldenCases, evaluationRuns } = await import("./db/schema.js");
+
+    const createdAt = Date.now();
+    const secondGoldenCaseUpdatedAt = createdAt + 1;
+    const goldenSetVersion = secondGoldenCaseUpdatedAt;
+    await db.insert(evaluationGoldenCases).values({
+      id: randomUUID(),
+      question: "What does current human evidence say about rapamycin and longevity?",
+      expectedAnswer: "Evidence is promising but preliminary in humans.",
+      status: "active",
+      metadata: JSON.stringify({ topic: "rapamycin longevity" }),
+      createdAt,
+      updatedAt: createdAt,
+    });
+    await db.insert(evaluationGoldenCases).values({
+      id: randomUUID(),
+      question: "What cautions should be included when discussing rapamycin longevity evidence?",
+      expectedAnswer: "Human endpoints, dosing, and long-term safety remain uncertain.",
+      status: "active",
+      metadata: JSON.stringify({ topic: "rapamycin longevity caveats" }),
+      createdAt: secondGoldenCaseUpdatedAt,
+      updatedAt: secondGoldenCaseUpdatedAt,
+    });
+
+    const manualRun = await app.inject({
+      method: "POST",
+      url: `/overnight/schedules/${manualSchedule.id}/run`,
+      payload: { force: true },
+      headers: { "content-type": "application/json" },
+    });
+    expect(manualRun.statusCode).toBe(200);
+    const manualRunBody = JSON.parse(manualRun.body) as {
+      results: Array<{ schedule_id: string; status: string; run_id: string | null; reason: string | null }>;
+    };
+    const manualRunResult = manualRunBody.results.find((row) => row.schedule_id === manualSchedule.id);
+    expect(manualRunResult?.status).toBe("completed");
+    expect(manualRunResult?.run_id).toBeTruthy();
+    expect(manualRunResult?.reason).toBeNull();
+
+    const readLatestGateReason = async (scheduleId: string): Promise<string | null> => {
+      const gateEvents = await db
+        .select()
+        .from(episodicEvents)
+        .where(eq(episodicEvents.eventType, "overnight_schedule_skipped"))
+        .orderBy(asc(episodicEvents.createdAt))
+        .all();
+      const matched = gateEvents
+        .map((event) => JSON.parse(event.payload) as { schedule_id?: string; gate_reason?: string; reason?: string })
+        .filter((payload) => payload.schedule_id === scheduleId && payload.reason === "evaluation_gate_blocked");
+      const latest = matched[matched.length - 1];
+      return latest?.gate_reason ?? null;
+    };
+
+    const noEvalDispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: { force: true, schedule_id: unattendedSchedule.id },
+      headers: { "content-type": "application/json" },
+    });
+    expect(noEvalDispatch.statusCode).toBe(200);
+    const noEvalBody = JSON.parse(noEvalDispatch.body) as {
+      results: Array<{ schedule_id: string; status: string; run_id: string | null; reason: string | null }>;
+    };
+    const noEvalResult = noEvalBody.results.find((row) => row.schedule_id === unattendedSchedule.id);
+    expect(noEvalResult?.status).toBe("skipped");
+    expect(noEvalResult?.run_id).toBeNull();
+    expect(noEvalResult?.reason).toBe("evaluation_gate_blocked");
+    expect(await readLatestGateReason(unattendedSchedule.id)).toBe("missing_evaluation_run");
+
+    await db.insert(evaluationRuns).values({
+      id: randomUUID(),
+      status: "passed",
+      goldenSetVersion: goldenSetVersion - 1,
+      goldenCaseCount: 2,
+      passThreshold: 0.8,
+      caseCount: 2,
+      passedCaseCount: 2,
+      failedCaseCount: 0,
+      notes: "Old golden-set revision should not pass gate.",
+      metadata: JSON.stringify({ source: "integration-test" }),
+      createdAt: createdAt + 1,
+    });
+
+    const staleRevisionDispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: { force: true, schedule_id: unattendedSchedule.id },
+      headers: { "content-type": "application/json" },
+    });
+    expect(staleRevisionDispatch.statusCode).toBe(200);
+    expect(await readLatestGateReason(unattendedSchedule.id)).toBe("evaluation_run_missing_golden_set_revision");
+
+    await db.insert(evaluationRuns).values({
+      id: randomUUID(),
+      status: "passed",
+      goldenSetVersion,
+      goldenCaseCount: 1,
+      passThreshold: 0.8,
+      caseCount: 2,
+      passedCaseCount: 2,
+      failedCaseCount: 0,
+      notes: "Missing golden-case coverage should block unattended writes.",
+      metadata: JSON.stringify({ source: "integration-test" }),
+      createdAt: createdAt + 2,
+    });
+
+    const missingCoverageDispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: { force: true, schedule_id: unattendedSchedule.id },
+      headers: { "content-type": "application/json" },
+    });
+    expect(missingCoverageDispatch.statusCode).toBe(200);
+    expect(await readLatestGateReason(unattendedSchedule.id)).toBe("evaluation_run_missing_golden_cases");
+
+    await db.insert(evaluationRuns).values({
+      id: randomUUID(),
+      status: "passed",
+      goldenSetVersion,
+      goldenCaseCount: 2,
+      passThreshold: 0.8,
+      caseCount: 0,
+      passedCaseCount: 0,
+      failedCaseCount: 0,
+      notes: "Zero-case run should fail the gate.",
+      metadata: JSON.stringify({ source: "integration-test" }),
+      createdAt: createdAt + 3,
+    });
+
+    const zeroCaseDispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: { force: true, schedule_id: unattendedSchedule.id },
+      headers: { "content-type": "application/json" },
+    });
+    expect(zeroCaseDispatch.statusCode).toBe(200);
+    expect(await readLatestGateReason(unattendedSchedule.id)).toBe("evaluation_run_has_no_cases");
+
+    await db.insert(evaluationRuns).values({
+      id: randomUUID(),
+      status: "passed",
+      goldenSetVersion,
+      goldenCaseCount: 2,
+      passThreshold: 0.8,
+      caseCount: 1,
+      passedCaseCount: 1,
+      failedCaseCount: 0,
+      notes: "Incomplete case results should fail the gate.",
+      metadata: JSON.stringify({ source: "integration-test" }),
+      createdAt: createdAt + 4,
+    });
+
+    const incompleteDispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: { force: true, schedule_id: unattendedSchedule.id },
+      headers: { "content-type": "application/json" },
+    });
+    expect(incompleteDispatch.statusCode).toBe(200);
+    expect(await readLatestGateReason(unattendedSchedule.id)).toBe("evaluation_run_has_incomplete_results");
+
+    await db.insert(evaluationRuns).values({
+      id: randomUUID(),
+      status: "passed",
+      goldenSetVersion,
+      goldenCaseCount: 2,
+      passThreshold: 0.8,
+      caseCount: 2,
+      passedCaseCount: 1,
+      failedCaseCount: 1,
+      notes: "Pass-rate threshold should block sub-threshold runs.",
+      metadata: JSON.stringify({ source: "integration-test" }),
+      createdAt: createdAt + 5,
+    });
+
+    const belowThresholdDispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: { force: true, schedule_id: unattendedSchedule.id },
+      headers: { "content-type": "application/json" },
+    });
+    expect(belowThresholdDispatch.statusCode).toBe(200);
+    expect(await readLatestGateReason(unattendedSchedule.id)).toBe("latest_evaluation_below_threshold");
+
+    await db.insert(evaluationRuns).values({
+      id: randomUUID(),
+      status: "failed",
+      goldenSetVersion,
+      goldenCaseCount: 2,
+      passThreshold: 0.8,
+      caseCount: 2,
+      passedCaseCount: 0,
+      failedCaseCount: 2,
+      notes: "Regression introduced citation mismatch.",
+      metadata: JSON.stringify({ source: "integration-test" }),
+      createdAt: createdAt + 6,
+    });
+
+    const blockedDispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: { force: true, schedule_id: unattendedSchedule.id },
+      headers: { "content-type": "application/json" },
+    });
+    expect(blockedDispatch.statusCode).toBe(200);
+    const blockedBody = JSON.parse(blockedDispatch.body) as {
+      results: Array<{ schedule_id: string; status: string; run_id: string | null; reason: string | null }>;
+    };
+    const blockedResult = blockedBody.results.find((row) => row.schedule_id === unattendedSchedule.id);
+    expect(blockedResult?.status).toBe("skipped");
+    expect(blockedResult?.run_id).toBeNull();
+    expect(blockedResult?.reason).toBe("evaluation_gate_blocked");
+    expect(await readLatestGateReason(unattendedSchedule.id)).toBe("latest_evaluation_failed");
+
+    await db.insert(evaluationRuns).values({
+      id: randomUUID(),
+      status: "passed",
+      goldenSetVersion,
+      goldenCaseCount: 2,
+      passThreshold: 0.8,
+      caseCount: 2,
+      passedCaseCount: 2,
+      failedCaseCount: 0,
+      notes: "Quality gate recovered.",
+      metadata: JSON.stringify({ source: "integration-test" }),
+      createdAt: createdAt + 7,
+    });
+
+    const allowedDispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: { force: true, schedule_id: unattendedSchedule.id },
+      headers: { "content-type": "application/json" },
+    });
+    expect(allowedDispatch.statusCode).toBe(200);
+    const allowedBody = JSON.parse(allowedDispatch.body) as {
+      results: Array<{ schedule_id: string; status: string; run_id: string | null; reason: string | null }>;
+    };
+    const allowedResult = allowedBody.results.find((row) => row.schedule_id === unattendedSchedule.id);
+    expect(allowedResult?.status).toBe("completed");
+    expect(allowedResult?.run_id).toBeTruthy();
+    expect(allowedResult?.reason).toBeNull();
+
+    await db.update(evaluationGoldenCases).set({ status: "inactive", updatedAt: Date.now() }).run();
   });
 
   it("requires auth on data routes when API_KEY is enabled", async () => {
