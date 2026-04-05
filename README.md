@@ -61,6 +61,7 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
    - `GET /beliefs/subgraph` — graph explorer subgraph (filters: `topic`, `time_from`, `time_to`, `confidence_min`)
    - `GET /beliefs/:id/evidence` — evidence supporting a belief (observer note/artifact/document links)
    - `GET /beliefs/uncertainty` — unresolved open questions + low-confidence active beliefs
+   - `GET /contradiction-candidates` — Stage 5 contradiction candidates from active belief conflicts + observer contradiction flags
    - `GET /timeline/events` — merged belief + major ingest/research timeline markers for visualization
    - `POST /beliefs/aggregate-stances` — derive low-confidence stance beliefs from transcript language
    - `POST /open-questions` / `GET /open-questions` / `PATCH /open-questions/:id` — open-question lifecycle + optional research-task linkage

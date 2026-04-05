@@ -327,7 +327,7 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 
 ### Stage 5 — Contradiction, curiosity, overnight
 
-- [ ] Contradiction detection + `contradiction_candidates` API
+- [x] Contradiction detection + `contradiction_candidates` API
 - [ ] User resolution flow (validity updates, new beliefs; no silent deletes)
 - [ ] Curiosity signals + ranked suggestions (research / reflection)
 - [ ] Overnight scheduler: budgets, allowlists, observability
