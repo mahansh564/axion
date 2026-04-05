@@ -2,7 +2,7 @@
 
 This document expands [plan.md](plan.md) into a **full multi-stage engineering roadmap**: what to build, in what order, with extension points and risks. It is the canonical **delivery** companion to the product vision in `plan.md`.
 
-**Repo status:** Stages **0** and **1** are implemented in-tree (see [README.md](README.md), `apps/api`, `apps/python-worker`, `packages/contracts`). Stages **2+** remain roadmap; checklists in §17 reflect completed vs pending work.
+**Repo status:** Stages **0–3** are implemented in-tree (see [README.md](README.md), `apps/api`, `apps/python-worker`, `packages/contracts`). Stages **4+** remain roadmap; checklists in §17 reflect completed vs pending work.
 
 ---
 
@@ -300,23 +300,23 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 
 ### Stage 2 — Research
 
-- [ ] Research task model + manual trigger
-- [ ] Agent loop: plan → sub-questions → tools (search, fetch, optional PDF)
-- [ ] Persist `execution_runs` + `execution_steps` for replayable research execution
-- [ ] Observer loop emits typed notes (`observer_note`, `candidate_task`, `candidate_belief`, `uncertainty_flag`, `contradiction_flag`, `coverage_gap`, `novelty_signal`)
-- [ ] Promotion gate stores approvals/rejections separately from canonical belief state
-- [ ] APIs: `POST /research/runs`, `GET /runs/:id/replay`, `GET /runs/:id/observations`, `POST /promotion/:id/approve`
-- [ ] Persist excerpts + claims with URLs, timestamps, dedup keys
-- [ ] Episodic: `research_run_*`, `claim_committed`, etc., with `run_id` / `step_id` / `artifact_refs` / `observer_verdict` / `promotion_status`
-- [ ] Q&A response schema labels **experience** vs **research** evidence
+- [x] Research task model + manual trigger
+- [x] Agent loop: plan → sub-questions → tools (search, fetch, optional PDF)
+- [x] Persist `execution_runs` + `execution_steps` for replayable research execution
+- [x] Observer loop emits typed notes (`observer_note`, `candidate_task`, `candidate_belief`, `uncertainty_flag`, `contradiction_flag`, `coverage_gap`, `novelty_signal`)
+- [x] Promotion gate stores approvals/rejections separately from canonical belief state
+- [x] APIs: `POST /research/runs`, `GET /runs/:id/replay`, `GET /runs/:id/observations`, `POST /promotion/:id/approve`
+- [x] Persist excerpts + claims with URLs, timestamps, dedup keys
+- [x] Episodic: `research_run_*`, `claim_committed`, etc., with `run_id` / `step_id` / `artifact_refs` / `observer_verdict` / `promotion_status`
+- [x] Q&A response schema labels **experience** vs **research** evidence
 
 ### Stage 3 — Synthesis
 
-- [ ] Append-only **belief** records (+ `supersedes` / validity)
-- [ ] Open questions: statuses + link to research tasks
-- [ ] Synthesis job (batch or on-demand) + optional human-confirm toggle; canonical sink for observer-approved belief candidates
-- [ ] Stance aggregation from experience signals → lower-confidence beliefs
-- [ ] APIs: belief timeline, uncertainty, evidence-for-belief
+- [x] Append-only **belief** records (+ `supersedes` / validity)
+- [x] Open questions: statuses + link to research tasks
+- [x] Synthesis job (batch or on-demand) + optional human-confirm toggle; canonical sink for observer-approved belief candidates
+- [x] Stance aggregation from experience signals → lower-confidence beliefs
+- [x] APIs: belief timeline, uncertainty, evidence-for-belief
 
 ### Stage 4 — Visualization
 

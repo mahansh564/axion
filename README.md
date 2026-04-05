@@ -49,8 +49,19 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
    - `GET /health` — process OK
    - `GET /ready` — SQLite OK + worker `/health` reachable
    - `POST /experiences/voice` — multipart audio → transcript → graph + episodic events
+   - `POST /research/runs` — create a queued research task/run for manual execution triggers
+   - `POST /research/runs/:id/execute` — execute a queued research run through plan/search/fetch steps
+   - `GET /runs/:id/replay` — inspect stored run/task/step/artifact/event state for a research run
+   - `GET /runs/:id/observations` — inspect observer-generated candidate notes for a research run
+   - `POST /promotion/:id/approve` — store approval or rejection decisions for observer notes
+   - `POST /synthesis/runs` — promote approved `candidate_belief` observer notes into append-only canonical beliefs
+   - `GET /beliefs/timeline` — belief history (optionally filter by `topic`)
+   - `GET /beliefs/:id/evidence` — evidence supporting a belief (observer note/artifact/document links)
+   - `GET /beliefs/uncertainty` — unresolved open questions + low-confidence active beliefs
+   - `POST /beliefs/aggregate-stances` — derive low-confidence stance beliefs from transcript language
+   - `POST /open-questions` / `GET /open-questions` / `PATCH /open-questions/:id` — open-question lifecycle + optional research-task linkage
    - `GET /experiences/:id`, `GET /documents/:id`
-   - `POST /qa` — keyword retrieval + optional 1-hop graph; citations and confidence in JSON body
+   - `POST /qa` — blended experience + research retrieval with source-labeled citations, confidence, and gaps
 
 Structured logs use `pino`; each response includes `x-trace-id`, propagated to the worker as `x-trace-id`.
 
