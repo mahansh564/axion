@@ -65,7 +65,7 @@ Stages below map to these layers incrementally so each phase ships **usable soft
 
 **Deliverables**
 
-- **Turborepo monorepo** layout (document in README): **`apps/api`** (TypeScript HTTP API), **`apps/python-worker`** (FastAPI + `pyproject.toml`), **`packages/contracts`** (JSON Schema / OpenAPI fragments for public API and internal job payloads). Root: `package.json`, `pnpm-workspace.yaml`, `turbo.json`. Future UI (Stage 4+) typically **`apps/web`** alongside these.
+- **Turborepo monorepo** layout (document in README): **`apps/api`** (TypeScript HTTP API), **`apps/web`** (React + Vite + Tailwind + shadcn-style visualization UI), **`apps/python-worker`** (FastAPI + `pyproject.toml`), **`packages/contracts`** (JSON Schema / OpenAPI fragments for public API and internal job payloads). Root: `package.json`, `pnpm-workspace.yaml`, `turbo.json`.
 - Environment-based config (secrets, API base URLs); per-app or root `.env.example`.
 - Structured logging + request tracing IDs.
 - CI: `pnpm turbo run lint test typecheck build` with **`--concurrency=1`** for reliable Python setup; GitHub Actions in [`.github/workflows/ci.yml`](.github/workflows/ci.yml); cache pnpm + Turbo; optional container image for `apps/api` (not required yet).
@@ -160,7 +160,7 @@ Stages below map to these layers incrementally so each phase ships **usable soft
 
 **Technical**
 
-- Likely **`apps/web`** (or equivalent) consuming the same APIs; auth aligned with Stage 0.
+- Implemented in **`apps/web`** (React + Vite) with shadcn-style component primitives consuming `/beliefs/subgraph`, `/timeline/events`, and `/runs/:id/replay`; auth aligned with Stage 0.
 
 **Exit criteria**: A user can visually trace why a belief exists and which experiences and sources contributed.
 

@@ -1,6 +1,6 @@
 # Axion
 
-Personal research and experience memory system. This repository is a **Turborepo + pnpm** monorepo with a **Node** HTTP API (`apps/api`) and a **Python** worker (`apps/python-worker`) for transcription and extraction.
+Personal research and experience memory system. This repository is a **Turborepo + pnpm** monorepo with a **Node** HTTP API (`apps/api`), a **React + Vite** web UI (`apps/web`), and a **Python** worker (`apps/python-worker`) for transcription and extraction.
 
 ## Prerequisites
 
@@ -25,7 +25,9 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
 | `API_PORT` | API listen port (default `3000`) |
 | `PYTHON_WORKER_URL` | Base URL for the Python worker (default `http://127.0.0.1:8000`) |
 | `API_KEY` | If set, protects all routes except `GET /health` and `GET /ready` (`Authorization: Bearer <key>`) |
+| `WEB_APP_URL` | URL used by API compatibility redirects for visualization paths (`http://127.0.0.1:5173` default) |
 | `MAX_UPLOAD_BYTES` | Multipart upload cap |
+| `VITE_API_BASE_URL` | API base URL for `apps/web` (default `http://127.0.0.1:3000`) |
 | `AXION_TRANSCRIBE_STUB` | Set to `1` on the worker to skip faster-whisper (tests / CI) |
 
 ## Run locally (startup order)
@@ -63,16 +65,31 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
    - `POST /beliefs/aggregate-stances` — derive low-confidence stance beliefs from transcript language
    - `POST /open-questions` / `GET /open-questions` / `PATCH /open-questions/:id` — open-question lifecycle + optional research-task linkage
    - `GET /experiences/:id`, `GET /documents/:id`
-   - `GET /beliefs/graph`, `GET /beliefs/timeline/view`, `GET /runs/:id/replay/view` — read-only Stage 4 visualization pages (use `?api_key=<key>` when `API_KEY` is enabled)
    - `POST /qa` — blended experience + research retrieval with source-labeled citations, confidence, and gaps
 
 Structured logs use `pino`; each response includes `x-trace-id`, propagated to the worker as `x-trace-id`.
+
+3. **Web UI** — from repo root:
+
+   ```bash
+   pnpm --filter @axion/web dev
+   ```
+
+   The web UI serves Stage 4 visualization routes:
+
+   - `/beliefs/graph`
+   - `/beliefs/timeline`
+   - `/runs/:runId/replay`
+
+   Compatibility note:
+   - Hitting `http://127.0.0.1:3000/beliefs/graph` (and related legacy view URLs) now redirects to `WEB_APP_URL`.
 
 ## Repo layout
 
 | Path | Role |
 |------|------|
 | `apps/api` | Fastify + Drizzle + SQLite |
+| `apps/web` | React + Vite + Tailwind + shadcn-style visualization UI |
 | `apps/python-worker` | FastAPI: `/transcribe`, `/extract` |
 | `packages/contracts` | JSON Schemas for request/response shapes |
 
