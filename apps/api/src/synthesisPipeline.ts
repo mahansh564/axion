@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, desc, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import { db } from "./db/client.js";
 import {
   beliefEvidence,
   beliefRecords,
   documents,
+  executionRuns,
   observerNotes,
   openQuestions,
+  promotionReviews,
   researchArtifacts,
 } from "./db/schema.js";
 import { questionKeywords } from "./search.js";
@@ -163,16 +165,51 @@ export async function runSynthesis(input?: {
   const maxCandidates = Math.max(1, Math.min(input?.maxCandidates ?? 20, 100));
 
   const candidates = await db
-    .select()
+    .select({
+      note: observerNotes,
+      triggerMode: executionRuns.triggerMode,
+    })
     .from(observerNotes)
+    .innerJoin(executionRuns, eq(executionRuns.id, observerNotes.runId))
     .where(and(eq(observerNotes.kind, "candidate_belief"), eq(observerNotes.status, "approved")))
     .orderBy(asc(observerNotes.createdAt))
     .limit(maxCandidates);
 
+  const overnightNoteIds = candidates
+    .filter((candidate) => candidate.triggerMode === "overnight")
+    .map((candidate) => candidate.note.id);
+
+  const overnightApprovedViaGate = new Set<string>();
+  if (overnightNoteIds.length > 0) {
+    const reviews = await db
+      .select({
+        noteId: promotionReviews.noteId,
+      })
+      .from(promotionReviews)
+      .where(
+        and(
+          inArray(promotionReviews.noteId, overnightNoteIds),
+          eq(promotionReviews.decision, "approved"),
+          eq(promotionReviews.reviewer, "user"),
+        ),
+      )
+      .all();
+
+    for (const review of reviews) {
+      overnightApprovedViaGate.add(review.noteId);
+    }
+  }
+
   const createdIds: string[] = [];
   let deferred = 0;
   let skipped = 0;
-  for (const note of candidates) {
+  for (const candidate of candidates) {
+    const note = candidate.note;
+    if (candidate.triggerMode === "overnight" && !overnightApprovedViaGate.has(note.id)) {
+      deferred += 1;
+      continue;
+    }
+
     const statement = collapseWhitespace(note.summary);
     if (!statement) {
       skipped += 1;
