@@ -709,6 +709,142 @@ describe("axion api integration", () => {
     );
   });
 
+  it("supports stage 5 contradiction candidates across beliefs and observer flags", async () => {
+    const now = Date.now();
+    const topic = "stage5 contradiction topic";
+    const taskId = randomUUID();
+    const runId = randomUUID();
+    const contradictionNoteId = randomUUID();
+    const approvedContradictionNoteId = randomUUID();
+    const positiveBeliefId = randomUUID();
+    const negativeBeliefId = randomUUID();
+
+    const { db } = await import("./db/client.js");
+    const { beliefRecords, executionRuns, observerNotes, researchTasks } = await import("./db/schema.js");
+
+    await db.insert(researchTasks).values({
+      id: taskId,
+      goal: "Seed contradiction candidate inputs",
+      source: "user",
+      status: "completed",
+      triggerMode: "manual",
+      metadata: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await db.insert(executionRuns).values({
+      id: runId,
+      taskId,
+      runKind: "research",
+      status: "completed",
+      triggerMode: "manual",
+      traceId: `trace-${runId}`,
+      input: JSON.stringify({ goal: "Seed contradiction candidate inputs" }),
+      createdAt: now,
+      startedAt: now,
+      completedAt: now,
+      error: null,
+    });
+
+    await db.insert(observerNotes).values({
+      id: contradictionNoteId,
+      runId,
+      stepId: null,
+      artifactId: null,
+      kind: "contradiction_flag",
+      status: "pending",
+      summary: "Studies disagree on whether rapamycin improves healthy human lifespan.",
+      confidence: 0.74,
+      payload: JSON.stringify({ topic }),
+      createdAt: now,
+    });
+    await db.insert(observerNotes).values({
+      id: approvedContradictionNoteId,
+      runId,
+      stepId: null,
+      artifactId: null,
+      kind: "contradiction_flag",
+      status: "approved",
+      summary: "A separate reviewer-approved contradiction signal remains visible for audit.",
+      confidence: 0.78,
+      payload: JSON.stringify({ topic }),
+      createdAt: now + 1,
+    });
+
+    await db.insert(beliefRecords).values([
+      {
+        id: positiveBeliefId,
+        statement: "Rapamycin improves healthy human lifespan.",
+        topic,
+        confidence: 0.82,
+        sourceKind: "synthesis",
+        sourceNoteId: null,
+        sourceDocumentId: null,
+        supersedesBeliefId: null,
+        validFrom: now - 10,
+        validTo: null,
+        metadata: JSON.stringify({ stage: "stage5" }),
+        createdAt: now - 10,
+      },
+      {
+        id: negativeBeliefId,
+        statement: "Rapamycin does not improve healthy human lifespan.",
+        topic,
+        confidence: 0.79,
+        sourceKind: "synthesis",
+        sourceNoteId: null,
+        sourceDocumentId: null,
+        supersedesBeliefId: null,
+        validFrom: now - 5,
+        validTo: null,
+        metadata: JSON.stringify({ stage: "stage5" }),
+        createdAt: now - 5,
+      },
+    ]);
+
+    const contradictions = await app.inject({
+      method: "GET",
+      url: `/contradiction-candidates?topic=${encodeURIComponent(topic)}&confidence_min=0.5&limit=10`,
+    });
+    expect(contradictions.statusCode).toBe(200);
+    const contradictionBody = JSON.parse(contradictions.body) as {
+      contradiction_candidates: Array<{
+        id: string;
+        candidate_type: string;
+        confidence: number;
+        status: string;
+        evidence: {
+          belief_ids?: string[];
+          note_id?: string;
+        };
+      }>;
+    };
+
+    expect(
+      contradictionBody.contradiction_candidates.some(
+        (candidate) =>
+          candidate.candidate_type === "belief_conflict" &&
+          candidate.evidence.belief_ids?.includes(positiveBeliefId) &&
+          candidate.evidence.belief_ids?.includes(negativeBeliefId),
+      ),
+    ).toBe(true);
+    expect(
+      contradictionBody.contradiction_candidates.some(
+        (candidate) => candidate.candidate_type === "observer_flag" && candidate.evidence.note_id === contradictionNoteId,
+      ),
+    ).toBe(true);
+    expect(
+      contradictionBody.contradiction_candidates.some(
+        (candidate) =>
+          candidate.candidate_type === "observer_flag" &&
+          candidate.evidence.note_id === approvedContradictionNoteId &&
+          candidate.status === "approved",
+      ),
+    ).toBe(true);
+    expect(contradictionBody.contradiction_candidates.every((candidate) => candidate.confidence >= 0.5)).toBe(true);
+  });
+
   it("requires auth on data routes when API_KEY is enabled", async () => {
     const authRoot = mkdtempSync(join(tmpdir(), "axion-api-auth-"));
     const oldDataDir = process.env.DATA_DIR;

@@ -7,6 +7,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { db } from "./db/client.js";
 import { documents, experienceRecords } from "./db/schema.js";
+import { listContradictionCandidates } from "./contradictionPipeline.js";
 import { env } from "./env.js";
 import { ingestVoiceNote } from "./experiencePipeline.js";
 import { withTrace } from "./log.js";
@@ -329,6 +330,22 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     const threshold = query.confidence_threshold ? Number(query.confidence_threshold) : undefined;
     const payload = await getUncertaintyView({
       confidenceThreshold: Number.isFinite(threshold as number) ? threshold : undefined,
+    });
+    await reply.send(payload);
+  });
+
+  app.get("/contradiction-candidates", async (req, reply) => {
+    const query = req.query as {
+      topic?: string;
+      confidence_min?: string;
+      limit?: string;
+    };
+    const confidenceMin = parseOptionalNumber(query.confidence_min);
+    const limit = parseOptionalNumber(query.limit);
+    const payload = await listContradictionCandidates({
+      topic: query.topic,
+      confidenceMin,
+      limit,
     });
     await reply.send(payload);
   });

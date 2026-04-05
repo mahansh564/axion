@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/contradiction-candidates-response.json",
+  "title": "ContradictionCandidatesResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contradiction_candidates"],
+  "properties": {
+    "contradiction_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "candidate_type", "topic", "summary", "confidence", "status", "detected_at", "evidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "candidate_type": { "type": "string", "enum": ["belief_conflict", "observer_flag"] },
+          "topic": { "type": ["string", "null"] },
+          "summary": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "status": { "type": "string" },
+          "detected_at": { "type": "integer" },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}
