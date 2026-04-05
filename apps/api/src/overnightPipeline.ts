@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 
 import { db } from "./db/client.js";
-import { episodicEvents, overnightSchedules } from "./db/schema.js";
+import { episodicEvents, evaluationGoldenCases, evaluationRuns, overnightSchedules } from "./db/schema.js";
 import { createResearchRun, executeResearchRun } from "./researchPipeline.js";
 
 function now(): number {
@@ -288,6 +288,82 @@ type DispatchScheduleResult = {
   reason: string | null;
 };
 
+type EvaluationGateSnapshot = {
+  golden_set_version: number;
+  active_golden_case_count: number;
+  latest_evaluation: {
+    id: string;
+    status: string;
+    golden_set_version: number;
+    golden_case_count: number;
+    pass_threshold: number;
+    case_count: number;
+    passed_case_count: number;
+    failed_case_count: number;
+    created_at: number;
+  } | null;
+};
+
+function asNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+async function getEvaluationGateSnapshot(): Promise<EvaluationGateSnapshot> {
+  const summaryRow = await db
+    .select({
+      count: sql<number>`count(*)`,
+      goldenSetVersion: sql<number>`coalesce(max(${evaluationGoldenCases.updatedAt}), 0)`,
+    })
+    .from(evaluationGoldenCases)
+    .where(eq(evaluationGoldenCases.status, "active"))
+    .get();
+  const activeGoldenCaseCount = Math.max(0, Math.floor(asNumber(summaryRow?.count)));
+  const goldenSetVersion = Math.max(0, Math.floor(asNumber(summaryRow?.goldenSetVersion)));
+  const latestEvaluation = await db.select().from(evaluationRuns).orderBy(desc(evaluationRuns.createdAt)).get();
+  return {
+    golden_set_version: goldenSetVersion,
+    active_golden_case_count: activeGoldenCaseCount,
+    latest_evaluation: latestEvaluation
+      ? {
+          id: latestEvaluation.id,
+          status: latestEvaluation.status,
+          golden_set_version: latestEvaluation.goldenSetVersion,
+          golden_case_count: latestEvaluation.goldenCaseCount,
+          pass_threshold: latestEvaluation.passThreshold,
+          case_count: latestEvaluation.caseCount,
+          passed_case_count: latestEvaluation.passedCaseCount,
+          failed_case_count: latestEvaluation.failedCaseCount,
+          created_at: latestEvaluation.createdAt,
+        }
+      : null,
+  };
+}
+
+function getEvaluationGateBlockReason(snapshot: EvaluationGateSnapshot): string | null {
+  if (snapshot.active_golden_case_count === 0) return null;
+  if (!snapshot.latest_evaluation) return "missing_evaluation_run";
+  if (snapshot.latest_evaluation.golden_set_version !== snapshot.golden_set_version) {
+    return "evaluation_run_missing_golden_set_revision";
+  }
+  if (snapshot.latest_evaluation.golden_case_count !== snapshot.active_golden_case_count) {
+    return "evaluation_run_missing_golden_cases";
+  }
+  if (snapshot.latest_evaluation.case_count <= 0) return "evaluation_run_has_no_cases";
+  if (snapshot.latest_evaluation.case_count < snapshot.active_golden_case_count) {
+    return "evaluation_run_has_incomplete_results";
+  }
+  if (snapshot.latest_evaluation.status !== "passed") return "latest_evaluation_failed";
+  const passRate = snapshot.latest_evaluation.passed_case_count / snapshot.latest_evaluation.case_count;
+  if (passRate < snapshot.latest_evaluation.pass_threshold) return "latest_evaluation_below_threshold";
+  return null;
+}
+
 function budgetExecutionPolicy(budget: BudgetShape): {
   max_subquestions: number;
   max_search_results: number;
@@ -308,6 +384,7 @@ async function dispatchSchedule(input: {
   schedule: typeof overnightSchedules.$inferSelect;
   traceId: string;
   force: boolean;
+  attended: boolean;
   nowMs: number;
 }): Promise<DispatchScheduleResult> {
   const schedule = input.schedule;
@@ -351,6 +428,29 @@ async function dispatchSchedule(input: {
       run_id: null,
       reason: "max_runs_per_night_reached",
     };
+  }
+
+  if (!input.attended) {
+    const gateSnapshot = await getEvaluationGateSnapshot();
+    const gateBlockReason = getEvaluationGateBlockReason(gateSnapshot);
+    if (gateBlockReason) {
+      await writeEvent({
+        traceId: input.traceId,
+        eventType: "overnight_schedule_skipped",
+        payload: {
+          schedule_id: schedule.id,
+          reason: "evaluation_gate_blocked",
+          gate_reason: gateBlockReason,
+          evaluation_gate: gateSnapshot,
+        },
+      });
+      return {
+        schedule_id: schedule.id,
+        status: "skipped",
+        run_id: null,
+        reason: "evaluation_gate_blocked",
+      };
+    }
   }
 
   const requestedAt = now();
@@ -509,6 +609,7 @@ export async function dispatchOvernightSchedules(input: {
   traceId: string;
   force?: boolean;
   scheduleId?: string;
+  attended?: boolean;
 }): Promise<{
   started_at: number;
   completed_at: number;
@@ -518,6 +619,7 @@ export async function dispatchOvernightSchedules(input: {
 }> {
   const startedAt = now();
   const force = input.force ?? false;
+  const attended = input.attended ?? false;
 
   const rows = await db
     .select()
@@ -545,6 +647,7 @@ export async function dispatchOvernightSchedules(input: {
         schedule,
         traceId: input.traceId,
         force,
+        attended,
         nowMs: startedAt,
       }),
     );

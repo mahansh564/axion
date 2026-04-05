@@ -267,6 +267,7 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
       traceId,
       force,
       scheduleId,
+      attended: true,
     });
 
     if (payload.schedule_count === 0) {
@@ -286,6 +287,7 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
       traceId,
       force: typeof body.force === "boolean" ? body.force : false,
       scheduleId: typeof body.schedule_id === "string" ? body.schedule_id : undefined,
+      attended: false,
     });
     await reply.send(payload);
   });
