@@ -1055,6 +1055,270 @@ describe("axion api integration", () => {
     expect(contradictionEvents.length).toBeGreaterThanOrEqual(3);
   });
 
+  it("supports stage 5 curiosity signals with ranked research/reflection suggestions", async () => {
+    const now = Date.now();
+    const topic = "rapamycin longevity";
+    const taskId = randomUUID();
+    const runId = randomUUID();
+    const experienceId = randomUUID();
+    const dormantQuestionId = randomUUID();
+    const activeQuestionId = randomUUID();
+
+    const { db } = await import("./db/client.js");
+    const {
+      beliefRecords,
+      documents,
+      executionRuns,
+      experienceRecords,
+      observerNotes,
+      openQuestions,
+      researchTasks,
+    } = await import("./db/schema.js");
+
+    await db.insert(researchTasks).values({
+      id: taskId,
+      goal: "Seed curiosity signals",
+      source: "user",
+      status: "completed",
+      triggerMode: "manual",
+      metadata: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await db.insert(executionRuns).values({
+      id: runId,
+      taskId,
+      runKind: "research",
+      status: "completed",
+      triggerMode: "manual",
+      traceId: `trace-${runId}`,
+      input: JSON.stringify({ goal: "Seed curiosity signals" }),
+      createdAt: now,
+      startedAt: now,
+      completedAt: now,
+      error: null,
+    });
+
+    await db.insert(openQuestions).values([
+      {
+        id: dormantQuestionId,
+        question: "How durable are healthy-lifespan benefits from rapamycin in humans?",
+        topic,
+        status: "open",
+        linkedTaskId: null,
+        resolutionBeliefId: null,
+        metadata: null,
+        createdAt: now - 35 * 24 * 60 * 60 * 1000,
+        updatedAt: now - 28 * 24 * 60 * 60 * 1000,
+      },
+      {
+        id: activeQuestionId,
+        question: "Which biomarkers should we track for rapamycin safety?",
+        topic,
+        status: "researching",
+        linkedTaskId: null,
+        resolutionBeliefId: null,
+        metadata: null,
+        createdAt: now - 3 * 24 * 60 * 60 * 1000,
+        updatedAt: now - 2 * 24 * 60 * 60 * 1000,
+      },
+    ]);
+
+    await db.insert(beliefRecords).values([
+      {
+        id: randomUUID(),
+        statement: "Rapamycin likely improves select aging biomarkers in adults.",
+        topic,
+        confidence: 0.56,
+        sourceKind: "synthesis",
+        sourceNoteId: null,
+        sourceDocumentId: null,
+        supersedesBeliefId: null,
+        validFrom: now - 5 * 24 * 60 * 60 * 1000,
+        validTo: null,
+        metadata: null,
+        createdAt: now - 5 * 24 * 60 * 60 * 1000,
+      },
+      {
+        id: randomUUID(),
+        statement: "Human longevity impact from rapamycin remains uncertain.",
+        topic,
+        confidence: 0.44,
+        sourceKind: "synthesis",
+        sourceNoteId: null,
+        sourceDocumentId: null,
+        supersedesBeliefId: null,
+        validFrom: now - 4 * 24 * 60 * 60 * 1000,
+        validTo: null,
+        metadata: null,
+        createdAt: now - 4 * 24 * 60 * 60 * 1000,
+      },
+    ]);
+
+    await db.insert(observerNotes).values([
+      {
+        id: randomUUID(),
+        runId,
+        stepId: null,
+        artifactId: null,
+        kind: "uncertainty_flag",
+        status: "pending",
+        summary: "Long-term immune effects from rapamycin remain uncertain.",
+        confidence: 0.71,
+        payload: JSON.stringify({ topic }),
+        createdAt: now - 24 * 60 * 60 * 1000,
+      },
+      {
+        id: randomUUID(),
+        runId,
+        stepId: null,
+        artifactId: null,
+        kind: "coverage_gap",
+        status: "pending",
+        summary: "Evidence lacks large controlled human studies for rapamycin longevity outcomes.",
+        confidence: 0.69,
+        payload: JSON.stringify({ topic }),
+        createdAt: now - 12 * 60 * 60 * 1000,
+      },
+    ]);
+
+    await db.insert(experienceRecords).values({
+      id: experienceId,
+      createdAt: now - 2 * 24 * 60 * 60 * 1000,
+      audioRelpath: "voice/curiosity.wav",
+      mimeType: "audio/wav",
+    });
+
+    await db.insert(documents).values([
+      {
+        id: randomUUID(),
+        experienceId,
+        kind: "transcript",
+        body: "Creatine supplementation daily dosage leaves me unsure; I am not sure what to do.",
+        sourceModel: "stub",
+        createdAt: now - 90 * 60 * 1000,
+        metadata: null,
+      },
+      {
+        id: randomUUID(),
+        experienceId,
+        kind: "transcript",
+        body: "Creatine supplementation daily dosage still confuses me and I don't know the right plan.",
+        sourceModel: "stub",
+        createdAt: now - 30 * 60 * 1000,
+        metadata: null,
+      },
+    ]);
+
+    const suggestionsResponse = await app.inject({
+      method: "GET",
+      url: "/curiosity/suggestions?limit=10",
+    });
+    expect(suggestionsResponse.statusCode).toBe(200);
+    const suggestionsBody = JSON.parse(suggestionsResponse.body) as {
+      generated_at: number;
+      suggestions: Array<{
+        id: string;
+        suggestion_type: string;
+        signal_type: string;
+        topic: string;
+        score: number;
+        evidence: {
+          open_question_id?: string;
+        };
+      }>;
+    };
+
+    expect(suggestionsBody.generated_at).toBeGreaterThan(0);
+    expect(suggestionsBody.suggestions.length).toBeGreaterThan(0);
+    expect(
+      suggestionsBody.suggestions.some(
+        (suggestion) =>
+          suggestion.signal_type === "dormant_open_question" &&
+          suggestion.suggestion_type === "research_task" &&
+          suggestion.evidence.open_question_id === dormantQuestionId,
+      ),
+    ).toBe(true);
+    expect(
+      suggestionsBody.suggestions.some(
+        (suggestion) => suggestion.evidence.open_question_id === activeQuestionId,
+      ),
+    ).toBe(false);
+    expect(
+      suggestionsBody.suggestions.some(
+        (suggestion) =>
+          suggestion.signal_type === "recurring_topic" &&
+          suggestion.topic === topic &&
+          suggestion.suggestion_type === "research_task",
+      ),
+    ).toBe(true);
+    expect(
+      suggestionsBody.suggestions.some(
+        (suggestion) =>
+          suggestion.signal_type === "repeated_confusion_phrase" &&
+          suggestion.topic === "creatine supplementation daily dosage" &&
+          suggestion.suggestion_type === "reflection_prompt",
+      ),
+    ).toBe(true);
+    for (let i = 1; i < suggestionsBody.suggestions.length; i += 1) {
+      expect(suggestionsBody.suggestions[i - 1].score).toBeGreaterThanOrEqual(suggestionsBody.suggestions[i].score);
+    }
+
+    const topicFiltered = await app.inject({
+      method: "GET",
+      url: `/curiosity/suggestions?topic=${encodeURIComponent(topic)}&min_score=0.4`,
+    });
+    expect(topicFiltered.statusCode).toBe(200);
+    const topicFilteredBody = JSON.parse(topicFiltered.body) as {
+      suggestions: Array<{ topic: string; score: number }>;
+    };
+    expect(topicFilteredBody.suggestions.length).toBeGreaterThan(0);
+    expect(topicFilteredBody.suggestions.every((suggestion) => suggestion.topic === topic)).toBe(true);
+    expect(topicFilteredBody.suggestions.every((suggestion) => suggestion.score >= 0.4)).toBe(true);
+
+    const regressionTopic = "topic filter regression";
+    const regressionNotes = Array.from({ length: 3 }, (_, index) => ({
+      id: randomUUID(),
+      runId,
+      stepId: null,
+      artifactId: null,
+      kind: index % 2 === 0 ? "uncertainty_flag" : "coverage_gap",
+      status: "pending",
+      summary: `Regression topic note ${index + 1}`,
+      confidence: 0.63,
+      payload: JSON.stringify({ topic: regressionTopic }),
+      createdAt: now - (3 - index) * 1000,
+    }));
+    const unrelatedNewerNotes = Array.from({ length: 320 }, (_, index) => ({
+      id: randomUUID(),
+      runId,
+      stepId: null,
+      artifactId: null,
+      kind: "uncertainty_flag" as const,
+      status: "pending",
+      summary: `Unrelated high-volume uncertainty signal ${index + 1}`,
+      confidence: 0.6,
+      payload: JSON.stringify({ topic: `noise-topic-${index}` }),
+      createdAt: now + index + 1,
+    }));
+    await db.insert(observerNotes).values([...regressionNotes, ...unrelatedNewerNotes]);
+
+    const regressionFiltered = await app.inject({
+      method: "GET",
+      url: `/curiosity/suggestions?topic=${encodeURIComponent(regressionTopic)}&min_score=0.3&limit=5`,
+    });
+    expect(regressionFiltered.statusCode).toBe(200);
+    const regressionFilteredBody = JSON.parse(regressionFiltered.body) as {
+      suggestions: Array<{ signal_type: string; topic: string }>;
+    };
+    expect(
+      regressionFilteredBody.suggestions.some(
+        (suggestion) => suggestion.signal_type === "recurring_topic" && suggestion.topic === regressionTopic,
+      ),
+    ).toBe(true);
+  });
+
   it("requires auth on data routes when API_KEY is enabled", async () => {
     const authRoot = mkdtempSync(join(tmpdir(), "axion-api-auth-"));
     const oldDataDir = process.env.DATA_DIR;
