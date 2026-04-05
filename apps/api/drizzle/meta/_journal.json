@@ -50,6 +50,13 @@
       "when": 1775400538559,
       "tag": "0006_careful_famine",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1775402216775,
+      "tag": "0007_swift_vance_astro",
+      "breakpoints": true
     }
   ]
 }

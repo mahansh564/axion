@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/overnight-schedules-response.json",
+  "title": "OvernightSchedulesResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schedules"],
+  "properties": {
+    "schedules": {
+      "type": "array",
+      "items": {
+        "$ref": "https://axion.local/schemas/overnight-schedule-response.json"
+      }
+    }
+  }
+}

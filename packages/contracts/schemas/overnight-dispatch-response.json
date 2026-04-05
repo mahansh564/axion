@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/overnight-dispatch-response.json",
+  "title": "OvernightDispatchResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["started_at", "completed_at", "force", "schedule_count", "results"],
+  "properties": {
+    "started_at": { "type": "integer" },
+    "completed_at": { "type": "integer" },
+    "force": { "type": "boolean" },
+    "schedule_count": { "type": "integer", "minimum": 0 },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schedule_id", "status", "run_id", "reason"],
+        "properties": {
+          "schedule_id": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["completed", "failed", "skipped"] },
+          "run_id": { "type": ["string", "null"] },
+          "reason": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

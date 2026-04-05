@@ -238,6 +238,35 @@ export const openQuestions = sqliteTable(
   ],
 );
 
+export const overnightSchedules = sqliteTable(
+  "overnight_schedules",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    goal: text("goal").notNull(),
+    notes: text("notes"),
+    hourUtc: integer("hour_utc", { mode: "number" }).notNull(),
+    minuteUtc: integer("minute_utc", { mode: "number" }).notNull(),
+    budget: text("budget").notNull(),
+    allowlistDomains: text("allowlist_domains").notNull(),
+    status: text("status").notNull(),
+    runsTodayDateUtc: text("runs_today_date_utc"),
+    runsTodayCount: integer("runs_today_count", { mode: "number" }).notNull(),
+    lastDispatchedAt: integer("last_dispatched_at", { mode: "number" }),
+    lastCompletedAt: integer("last_completed_at", { mode: "number" }),
+    lastRunId: text("last_run_id").references(() => executionRuns.id, { onDelete: "set null" }),
+    lastRunStatus: text("last_run_status"),
+    lastError: text("last_error"),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("overnight_schedules_status_idx").on(t.status),
+    index("overnight_schedules_hour_minute_idx").on(t.hourUtc, t.minuteUtc),
+    index("overnight_schedules_last_run_idx").on(t.lastRunId),
+  ],
+);
+
 export const graphNodes = sqliteTable(
   "graph_nodes",
   {

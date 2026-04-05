@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/overnight-schedule-request.json",
+  "title": "OvernightScheduleRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "goal", "hour_utc", "minute_utc"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "goal": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" },
+    "hour_utc": { "type": "integer", "minimum": 0, "maximum": 23 },
+    "minute_utc": { "type": "integer", "minimum": 0, "maximum": 59 },
+    "status": { "type": "string", "enum": ["active", "paused"] },
+    "allowlist_domains": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_runs_per_night": { "type": "integer", "minimum": 1 },
+        "max_subquestions": { "type": "integer", "minimum": 1 },
+        "max_search_results": { "type": "integer", "minimum": 1 },
+        "max_fetches": { "type": "integer", "minimum": 1 },
+        "max_artifacts": { "type": "integer", "minimum": 1 },
+        "max_runtime_minutes": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}
