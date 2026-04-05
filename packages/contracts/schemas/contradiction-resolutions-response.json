@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/contradiction-resolutions-response.json",
+  "title": "ContradictionResolutionsResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["resolutions"],
+  "properties": {
+    "resolutions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "candidate_id",
+          "candidate_type",
+          "decision",
+          "target_belief_id",
+          "resolution_belief_id",
+          "observer_note_id",
+          "rationale",
+          "metadata",
+          "created_at"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "candidate_id": { "type": "string" },
+          "candidate_type": { "type": "string", "enum": ["belief_conflict", "observer_flag"] },
+          "decision": { "type": "string", "enum": ["invalidate_belief", "supersede_belief", "keep_both"] },
+          "target_belief_id": { "type": ["string", "null"] },
+          "resolution_belief_id": { "type": ["string", "null"] },
+          "observer_note_id": { "type": ["string", "null"] },
+          "rationale": { "type": ["string", "null"] },
+          "metadata": { "type": ["object", "null"] },
+          "created_at": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

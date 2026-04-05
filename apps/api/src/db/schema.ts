@@ -193,6 +193,30 @@ export const beliefEvidence = sqliteTable(
   ],
 );
 
+export const contradictionResolutions = sqliteTable(
+  "contradiction_resolutions",
+  {
+    id: text("id").primaryKey(),
+    candidateId: text("candidate_id").notNull(),
+    candidateType: text("candidate_type").notNull(),
+    decision: text("decision").notNull(),
+    targetBeliefId: text("target_belief_id").references(() => beliefRecords.id, { onDelete: "set null" }),
+    resolutionBeliefId: text("resolution_belief_id").references(() => beliefRecords.id, { onDelete: "set null" }),
+    observerNoteId: text("observer_note_id").references(() => observerNotes.id, { onDelete: "set null" }),
+    rationale: text("rationale"),
+    metadata: text("metadata"),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("contradiction_resolutions_candidate_idx").on(t.candidateId),
+    index("contradiction_resolutions_decision_idx").on(t.decision),
+    index("contradiction_resolutions_created_idx").on(t.createdAt),
+    index("contradiction_resolutions_target_belief_idx").on(t.targetBeliefId),
+    index("contradiction_resolutions_resolution_belief_idx").on(t.resolutionBeliefId),
+    index("contradiction_resolutions_observer_note_idx").on(t.observerNoteId),
+  ],
+);
+
 export const openQuestions = sqliteTable(
   "open_questions",
   {

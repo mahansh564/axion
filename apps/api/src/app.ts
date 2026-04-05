@@ -7,7 +7,11 @@ import { eq, sql } from "drizzle-orm";
 
 import { db } from "./db/client.js";
 import { documents, experienceRecords } from "./db/schema.js";
-import { listContradictionCandidates } from "./contradictionPipeline.js";
+import {
+  listContradictionCandidates,
+  listContradictionResolutions,
+  resolveContradiction,
+} from "./contradictionPipeline.js";
 import { env } from "./env.js";
 import { ingestVoiceNote } from "./experiencePipeline.js";
 import { withTrace } from "./log.js";
@@ -346,6 +350,71 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
       topic: query.topic,
       confidenceMin,
       limit,
+    });
+    await reply.send(payload);
+  });
+
+  app.post("/contradictions/resolve", async (req, reply) => {
+    const traceId = (req as FastifyRequest & { traceId: string }).traceId;
+    const body = (req.body ?? {}) as {
+      candidate_id?: unknown;
+      decision?: unknown;
+      target_belief_id?: unknown;
+      statement?: unknown;
+      topic?: unknown;
+      confidence?: unknown;
+      rationale?: unknown;
+      metadata?: unknown;
+    };
+    if (typeof body.candidate_id !== "string" || !body.candidate_id.trim()) {
+      await reply.status(400).send({ error: "candidate_id required" });
+      return;
+    }
+    if (typeof body.decision !== "string" || !body.decision.trim()) {
+      await reply.status(400).send({ error: "decision required" });
+      return;
+    }
+    try {
+      const payload = await resolveContradiction({
+        traceId,
+        candidateId: body.candidate_id,
+        decision: body.decision as "invalidate_belief" | "supersede_belief" | "keep_both",
+        targetBeliefId: typeof body.target_belief_id === "string" ? body.target_belief_id : undefined,
+        statement: typeof body.statement === "string" ? body.statement : undefined,
+        topic: typeof body.topic === "string" ? body.topic : undefined,
+        confidence: typeof body.confidence === "number" ? body.confidence : undefined,
+        rationale: typeof body.rationale === "string" ? body.rationale : undefined,
+        metadata:
+          typeof body.metadata === "object" && body.metadata !== null
+            ? (body.metadata as Record<string, unknown>)
+            : undefined,
+      });
+      await reply.status(201).send(payload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const statusCode =
+        message.includes("required") ||
+        message.startsWith("invalid") ||
+        message.includes("must belong") ||
+        message.includes("topic does not match")
+          ? 400
+          : message.includes("not found")
+            ? 404
+            : message.includes("inactive")
+              ? 409
+              : 409;
+      await reply.status(statusCode).send({ error: message });
+    }
+  });
+
+  app.get("/contradictions/resolutions", async (req, reply) => {
+    const query = req.query as {
+      candidate_id?: string;
+      limit?: string;
+    };
+    const payload = await listContradictionResolutions({
+      candidateId: query.candidate_id,
+      limit: parseOptionalNumber(query.limit),
     });
     await reply.send(payload);
   });

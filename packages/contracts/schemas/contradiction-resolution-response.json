@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/contradiction-resolution-response.json",
+  "title": "ContradictionResolutionResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "resolution_id",
+    "candidate_id",
+    "candidate_type",
+    "decision",
+    "target_belief_id",
+    "resolution_belief_id",
+    "observer_note_id",
+    "created_at"
+  ],
+  "properties": {
+    "resolution_id": { "type": "string" },
+    "candidate_id": { "type": "string" },
+    "candidate_type": { "type": "string", "enum": ["belief_conflict", "observer_flag"] },
+    "decision": { "type": "string", "enum": ["invalidate_belief", "supersede_belief", "keep_both"] },
+    "target_belief_id": { "type": ["string", "null"] },
+    "resolution_belief_id": { "type": ["string", "null"] },
+    "observer_note_id": { "type": ["string", "null"] },
+    "created_at": { "type": "integer" }
+  }
+}

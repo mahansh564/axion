@@ -845,6 +845,216 @@ describe("axion api integration", () => {
     expect(contradictionBody.contradiction_candidates.every((candidate) => candidate.confidence >= 0.5)).toBe(true);
   });
 
+  it("supports stage 5 contradiction resolution flow with validity updates and no silent deletes", async () => {
+    const now = Date.now();
+    const topic = "stage5 resolution topic";
+    const taskId = randomUUID();
+    const runId = randomUUID();
+    const observerNoteId = randomUUID();
+    const beliefAId = randomUUID();
+    const beliefBId = randomUUID();
+    const unrelatedBeliefId = randomUUID();
+
+    const { db } = await import("./db/client.js");
+    const { beliefRecords, contradictionResolutions, episodicEvents, executionRuns, observerNotes, researchTasks } =
+      await import("./db/schema.js");
+
+    await db.insert(researchTasks).values({
+      id: taskId,
+      goal: "Seed contradiction resolution test data",
+      source: "user",
+      status: "completed",
+      triggerMode: "manual",
+      metadata: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await db.insert(executionRuns).values({
+      id: runId,
+      taskId,
+      runKind: "research",
+      status: "completed",
+      triggerMode: "manual",
+      traceId: `trace-${runId}`,
+      input: JSON.stringify({ goal: "Seed contradiction resolution test data" }),
+      createdAt: now,
+      startedAt: now,
+      completedAt: now,
+      error: null,
+    });
+
+    await db.insert(observerNotes).values({
+      id: observerNoteId,
+      runId,
+      stepId: null,
+      artifactId: null,
+      kind: "contradiction_flag",
+      status: "pending",
+      summary: "Conflicting analyses detected for rapamycin in healthy aging populations.",
+      confidence: 0.69,
+      payload: JSON.stringify({ topic }),
+      createdAt: now,
+    });
+
+    await db.insert(beliefRecords).values([
+      {
+        id: beliefAId,
+        statement: "Rapamycin improves healthy lifespan outcomes in humans.",
+        topic,
+        confidence: 0.8,
+        sourceKind: "synthesis",
+        sourceNoteId: null,
+        sourceDocumentId: null,
+        supersedesBeliefId: null,
+        validFrom: now - 20,
+        validTo: null,
+        metadata: null,
+        createdAt: now - 20,
+      },
+      {
+        id: beliefBId,
+        statement: "Rapamycin does not improve healthy lifespan outcomes in humans.",
+        topic,
+        confidence: 0.77,
+        sourceKind: "synthesis",
+        sourceNoteId: null,
+        sourceDocumentId: null,
+        supersedesBeliefId: null,
+        validFrom: now - 10,
+        validTo: null,
+        metadata: null,
+        createdAt: now - 10,
+      },
+      {
+        id: unrelatedBeliefId,
+        statement: "Creatine improves sprint performance in trained athletes.",
+        topic: "creatine",
+        confidence: 0.73,
+        sourceKind: "synthesis",
+        sourceNoteId: null,
+        sourceDocumentId: null,
+        supersedesBeliefId: null,
+        validFrom: now - 15,
+        validTo: null,
+        metadata: null,
+        createdAt: now - 15,
+      },
+    ]);
+
+    const conflictCandidateId = `belief-conflict:${[beliefAId, beliefBId].sort().join(":")}`;
+
+    const invalidate = await app.inject({
+      method: "POST",
+      url: "/contradictions/resolve",
+      payload: {
+        candidate_id: conflictCandidateId,
+        decision: "invalidate_belief",
+        target_belief_id: beliefBId,
+        rationale: "Reject the weaker contradictory claim while preserving history.",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(invalidate.statusCode).toBe(201);
+    const invalidateBody = JSON.parse(invalidate.body) as {
+      resolution_id: string;
+      target_belief_id: string | null;
+      resolution_belief_id: string | null;
+    };
+    expect(invalidateBody.target_belief_id).toBe(beliefBId);
+    expect(invalidateBody.resolution_belief_id).toBeNull();
+
+    const beliefBRow = await db.select().from(beliefRecords).where(eq(beliefRecords.id, beliefBId)).get();
+    expect(beliefBRow?.validTo).not.toBeNull();
+
+    const supersede = await app.inject({
+      method: "POST",
+      url: "/contradictions/resolve",
+      payload: {
+        candidate_id: conflictCandidateId,
+        decision: "supersede_belief",
+        target_belief_id: beliefAId,
+        statement: "Human longevity evidence remains uncertain and insufficient for a net-benefit conclusion.",
+        confidence: 0.66,
+        rationale: "Use a more conservative synthesis until stronger trials arrive.",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(supersede.statusCode).toBe(201);
+    const supersedeBody = JSON.parse(supersede.body) as {
+      resolution_id: string;
+      resolution_belief_id: string | null;
+    };
+    expect(supersedeBody.resolution_belief_id).toBeTruthy();
+
+    const beliefARow = await db.select().from(beliefRecords).where(eq(beliefRecords.id, beliefAId)).get();
+    expect(beliefARow?.validTo).not.toBeNull();
+    const supersedingBelief = await db
+      .select()
+      .from(beliefRecords)
+      .where(eq(beliefRecords.id, supersedeBody.resolution_belief_id as string))
+      .get();
+    expect(supersedingBelief?.supersedesBeliefId).toBe(beliefAId);
+    expect(supersedingBelief?.sourceKind).toBe("contradiction_resolution");
+
+    const invalidCrossTopic = await app.inject({
+      method: "POST",
+      url: "/contradictions/resolve",
+      payload: {
+        candidate_id: `observer-flag:${observerNoteId}`,
+        decision: "invalidate_belief",
+        target_belief_id: unrelatedBeliefId,
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(invalidCrossTopic.statusCode).toBe(400);
+    expect(JSON.parse(invalidCrossTopic.body).error).toContain("target belief topic");
+
+    const keepBoth = await app.inject({
+      method: "POST",
+      url: "/contradictions/resolve",
+      payload: {
+        candidate_id: `observer-flag:${observerNoteId}`,
+        decision: "keep_both",
+        rationale: "Retain both claims as unresolved pending additional evidence.",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(keepBoth.statusCode).toBe(201);
+    const keepBothBody = JSON.parse(keepBoth.body) as { observer_note_id: string | null };
+    expect(keepBothBody.observer_note_id).toBe(observerNoteId);
+
+    const byCandidate = await app.inject({
+      method: "GET",
+      url: `/contradictions/resolutions?candidate_id=${encodeURIComponent(conflictCandidateId)}`,
+    });
+    expect(byCandidate.statusCode).toBe(200);
+    const byCandidateBody = JSON.parse(byCandidate.body) as {
+      resolutions: Array<{ decision: string; candidate_id: string }>;
+    };
+    expect(byCandidateBody.resolutions.length).toBeGreaterThanOrEqual(2);
+    expect(byCandidateBody.resolutions.every((resolution) => resolution.candidate_id === conflictCandidateId)).toBe(
+      true,
+    );
+
+    const noSilentDeletes = await db
+      .select({ id: beliefRecords.id })
+      .from(beliefRecords)
+      .where(eq(beliefRecords.topic, topic))
+      .all();
+    expect(noSilentDeletes.length).toBeGreaterThanOrEqual(3);
+
+    const resolutionRows = await db.select().from(contradictionResolutions).all();
+    expect(resolutionRows.length).toBeGreaterThanOrEqual(3);
+
+    const contradictionEvents = await db
+      .select()
+      .from(episodicEvents)
+      .where(eq(episodicEvents.eventType, "contradiction_resolved"))
+      .all();
+    expect(contradictionEvents.length).toBeGreaterThanOrEqual(3);
+  });
+
   it("requires auth on data routes when API_KEY is enabled", async () => {
     const authRoot = mkdtempSync(join(tmpdir(), "axion-api-auth-"));
     const oldDataDir = process.env.DATA_DIR;
