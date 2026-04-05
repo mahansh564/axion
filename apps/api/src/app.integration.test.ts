@@ -1448,6 +1448,108 @@ describe("axion api integration", () => {
     expect(secondBody.results[0]?.reason).toBe("max_runs_per_night_reached");
   });
 
+  it("requires promotion gate approval before overnight candidate beliefs can be synthesized", async () => {
+    const createSchedule = await app.inject({
+      method: "POST",
+      url: "/overnight/schedules",
+      payload: {
+        name: "Nightly synthesis gate check",
+        goal: "Collect candidate beliefs for overnight promotion gating",
+        hour_utc: 3,
+        minute_utc: 30,
+        budget: {
+          max_runs_per_night: 1,
+          max_subquestions: 2,
+          max_search_results: 2,
+          max_fetches: 1,
+          max_artifacts: 6,
+          max_runtime_minutes: 5,
+        },
+        allowlist_domains: ["example.com"],
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(createSchedule.statusCode).toBe(201);
+    const createdSchedule = JSON.parse(createSchedule.body) as { id: string };
+
+    const dispatch = await app.inject({
+      method: "POST",
+      url: "/overnight/dispatch",
+      payload: { force: true, schedule_id: createdSchedule.id },
+      headers: { "content-type": "application/json" },
+    });
+    expect(dispatch.statusCode).toBe(200);
+    const dispatchBody = JSON.parse(dispatch.body) as {
+      results: Array<{ run_id: string | null; status: string }>;
+    };
+    expect(dispatchBody.results[0]?.status).toBe("completed");
+    const runId = dispatchBody.results[0]?.run_id;
+    expect(runId).toBeTruthy();
+    if (!runId) {
+      throw new Error("expected overnight dispatch to return run_id");
+    }
+
+    const { db } = await import("./db/client.js");
+    const { beliefRecords, observerNotes, promotionReviews } = await import("./db/schema.js");
+
+    const overnightNotes = await db.select().from(observerNotes).where(eq(observerNotes.runId, runId)).all();
+    const overnightCandidate = overnightNotes.find((row) => row.kind === "candidate_belief");
+    expect(overnightCandidate?.id).toBeTruthy();
+    expect(overnightCandidate?.kind).toBe("candidate_belief");
+    expect(overnightCandidate?.status).toBe("pending");
+    if (!overnightCandidate) {
+      throw new Error("expected overnight run to emit candidate_belief note");
+    }
+
+    await db.update(observerNotes).set({ status: "approved" }).where(eq(observerNotes.id, overnightCandidate.id));
+
+    const synthesisWithoutReview = await app.inject({
+      method: "POST",
+      url: "/synthesis/runs",
+      payload: { confirm_required: false, confidence_threshold: 0 },
+      headers: { "content-type": "application/json" },
+    });
+    expect(synthesisWithoutReview.statusCode).toBe(201);
+
+    const beliefWithoutReview = await db
+      .select()
+      .from(beliefRecords)
+      .where(eq(beliefRecords.sourceNoteId, overnightCandidate.id))
+      .get();
+    expect(beliefWithoutReview).toBeUndefined();
+
+    const approve = await app.inject({
+      method: "POST",
+      url: `/promotion/${overnightCandidate.id}/approve`,
+      payload: { approved: true, rationale: "Manual overnight promotion review approval" },
+      headers: { "content-type": "application/json" },
+    });
+    expect(approve.statusCode).toBe(200);
+
+    const synthesisAfterReview = await app.inject({
+      method: "POST",
+      url: "/synthesis/runs",
+      payload: { confirm_required: false, confidence_threshold: 0 },
+      headers: { "content-type": "application/json" },
+    });
+    expect(synthesisAfterReview.statusCode).toBe(201);
+
+    const promotedBelief = await db
+      .select()
+      .from(beliefRecords)
+      .where(eq(beliefRecords.sourceNoteId, overnightCandidate.id))
+      .get();
+    expect(promotedBelief?.id).toBeTruthy();
+    expect(promotedBelief?.sourceKind).toBe("synthesis");
+
+    const promotionReview = await db
+      .select()
+      .from(promotionReviews)
+      .where(eq(promotionReviews.noteId, overnightCandidate.id))
+      .get();
+    expect(promotionReview?.decision).toBe("approved");
+  });
+
   it("requires auth on data routes when API_KEY is enabled", async () => {
     const authRoot = mkdtempSync(join(tmpdir(), "axion-api-auth-"));
     const oldDataDir = process.env.DATA_DIR;
