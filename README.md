@@ -56,11 +56,14 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
    - `POST /promotion/:id/approve` — store approval or rejection decisions for observer notes
    - `POST /synthesis/runs` — promote approved `candidate_belief` observer notes into append-only canonical beliefs
    - `GET /beliefs/timeline` — belief history (optionally filter by `topic`)
+   - `GET /beliefs/subgraph` — graph explorer subgraph (filters: `topic`, `time_from`, `time_to`, `confidence_min`)
    - `GET /beliefs/:id/evidence` — evidence supporting a belief (observer note/artifact/document links)
    - `GET /beliefs/uncertainty` — unresolved open questions + low-confidence active beliefs
+   - `GET /timeline/events` — merged belief + major ingest/research timeline markers for visualization
    - `POST /beliefs/aggregate-stances` — derive low-confidence stance beliefs from transcript language
    - `POST /open-questions` / `GET /open-questions` / `PATCH /open-questions/:id` — open-question lifecycle + optional research-task linkage
    - `GET /experiences/:id`, `GET /documents/:id`
+   - `GET /beliefs/graph`, `GET /beliefs/timeline/view`, `GET /runs/:id/replay/view` — read-only Stage 4 visualization pages (use `?api_key=<key>` when `API_KEY` is enabled)
    - `POST /qa` — blended experience + research retrieval with source-labeled citations, confidence, and gaps
 
 Structured logs use `pino`; each response includes `x-trace-id`, propagated to the worker as `x-trace-id`.
