@@ -24,3 +24,4 @@ htmlcov
 .tmp-migrate.db
 .tmp-migrate.db-journal
 .pnpm-store
+.omx/

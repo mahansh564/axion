@@ -27,6 +27,7 @@ Stakeholder choices that constrain implementation:
 - **Models — local-first**: Default to **on-device transcription** (e.g. faster-whisper) and **local LLM** where feasible (e.g. Ollama); **cloud providers remain pluggable** behind interfaces for users who opt in or for tasks that exceed local hardware.
 - **TS ↔ Python — HTTP**: Python exposes a small **local HTTP worker** (e.g. FastAPI) for transcription and extraction; the Node API calls it on localhost; document ports and startup order in README.
 - **Monorepo — Turborepo + pnpm**: TypeScript and shared artifacts live in **pnpm workspaces**; **Turborepo** orchestrates `lint`, `test`, `typecheck`, `build`, and `dev` across packages. Python uses `pyproject.toml` under `apps/python-worker` with a **local `.venv`** created by `scripts/ensure-venv.sh` (invoked from that app’s `package.json` scripts); **not** installed by pnpm. CI runs `pnpm turbo run …` with **`--concurrency=1`** so parallel tasks do not race venv/pip. Optional: `uv` / manual `pip install -e ".[dev]"` (see worker README).
+- **Observer / executor split — narrow writes**: autonomous execution is modeled as an **executor loop** plus an **observer loop**. The executor plans, decomposes, uses tools, and stores provisional artifacts. The observer inspects traces and outputs **typed, evidence-linked candidate records** (`observer_note`, `candidate_task`, `candidate_belief`, `uncertainty_flag`, `contradiction_flag`, `coverage_gap`, `novelty_signal`). In v1 the observer does **not** directly mutate canonical beliefs or graph validity; approvals flow through a **promotion gate**, and synthesis remains the canonical owner of belief history.
 
 ---
 
@@ -36,6 +37,7 @@ Stakeholder choices that constrain implementation:
 |--------|----------------|----------|----------|
 | **Experience** | Capture subjective, contextual inputs | Audio, text, imports | Normalized experiences, transcripts, emotion/stance signals |
 | **Research** | Autonomous and batched world-knowledge gathering | Topics, open questions, schedules | Claims, facts, summaries, sources, confidence |
+| **Observer** | Inspect runs, traces, and tool outputs for uncertainty, contradictions, and next actions | Execution runs, episodic log, tool outputs, replay artifacts | Typed observations, candidate beliefs/tasks, promotion inputs |
 | **Memory** | Durable hybrid store | Experience + research artifacts | Documents, graph nodes/edges, episodic log, vectors |
 | **Synthesis** | Turn raw into **beliefs** and **open questions** | Memory slices | Belief nodes (append-only history), contradictions to resolve |
 | **Retrieval** | Conversational Q&A and analytics queries | Memory + synthesis | Structured answers: evidence, beliefs, contradictions, evolution |
@@ -53,6 +55,7 @@ Stages below map to these layers incrementally so each phase ships **usable soft
 3. **Repository boundaries**: graph store, vector store, and LLM/transcription providers sit behind interfaces so SQLite → Postgres, or flat graph → Neo4j, does not rewrite business logic.
 4. **Single-user clarity until explicit multi-tenant**: default to one user “tenant”; schema keys `user_id` or `workspace_id` where migration pain would otherwise be high.
 5. **Defer clever automation** until **evaluation** exists for the pathways that write to memory (ingestion, synthesis).
+6. **Observer reads everywhere, writes narrowly**: the observer may inspect broad system activity, but it only emits candidate records with provenance and confidence; promotion and synthesis decide what becomes durable belief or task state.
 
 ---
 
@@ -110,13 +113,16 @@ Stages below map to these layers incrementally so each phase ships **usable soft
 
 - **Task model**: research goals (from user or from open questions), schedules (manual trigger first; cron/queue later).
 - **Agent workflow** (incremental): plan → decompose into sub-questions → parallel tool calls (web search, fetch URL, optional PDF parse) → consolidate.
+- **Dual-loop runtime**: research runs are modeled as an **executor loop** plus an **observer loop**. The executor owns goal selection, decomposition, tool use, raw artifact storage, and provisional completion. The observer reviews step traces and completed runs and emits typed observations rather than mutating canonical beliefs directly.
 - **Artifacts**: per step store raw excerpts + normalized **claims** as graph nodes or typed documents; link to URLs and retrieval timestamps.
 - **Ingestion breadth** (prioritize in order): web pages and snippets; optional PDF pipeline; optional “paste paper abstract” manual path.
 - **Deduplication**: coarse dedup keys (URL, content hash) to avoid graph explosion.
+- **Observation outputs**: persist `execution_runs`, `execution_steps`, `observer_notes`, and `promotion_reviews` so research runs are replayable and promotion decisions are inspectable.
 
 **Integration**
 
-- Episodic log: `research_run_started`, `sub_question_resolved`, `claim_committed`.
+- Episodic log: `research_run_started`, `sub_question_resolved`, `claim_committed`, plus run/step envelopes (`run_id`, `step_id`, `parent_step_id`, `artifact_refs`, `observer_verdict`, `promotion_status`) for replay and auditing.
+- **Promotion gate**: observer outputs that may become durable tasks or beliefs flow through an approval layer (`POST /promotion/:id/approve` or equivalent), not directly into canonical belief storage.
 - Retrieval: Q&A must blend **experience-backed** and **research-backed** evidence with clear labeling in the response schema.
 
 **Exit criteria**: User can kick off a research task on topic T; system persists claims with sources; Q&A can answer “What does the literature say about T?” vs “What have I said about T?” using the same API shape.
@@ -131,7 +137,7 @@ Stages below map to these layers incrementally so each phase ships **usable soft
 
 - **Belief records**: append-only; fields include statement, confidence, evidence graph node IDs, `supersedes_belief_id` optional, timestamps.
 - **Open questions**: linked to topics/entities; status (`open`, `researching`, `resolved`); link to research tasks.
-- **Synthesis jobs**: periodic or on-demand merge of research + experience slices into candidate beliefs; **human confirmation** optional but recommended for high-impact beliefs (toggle).
+- **Synthesis jobs**: periodic or on-demand merge of research + experience slices into candidate beliefs; **human confirmation** optional but recommended for high-impact beliefs (toggle). Synthesis remains the canonical owner of belief evolution even when observer-generated candidates exist upstream.
 - **Stance aggregation**: map experience signals (“feels overhyped”) into belief-level hypotheses with lower confidence than explicit user assertions.
 
 **Retrieval**
@@ -177,6 +183,7 @@ Stages below map to these layers incrementally so each phase ships **usable soft
 **Overnight research mode**
 
 - Scheduler + guardrails: max cost, max runtime, allowlist domains, replay from episodic log.
+- Observer loop required on unattended runs: overnight execution may store provisional artifacts automatically, but observer outputs remain candidate records until they pass the promotion/evaluation gate.
 - **Evaluation gate**: no unattended write path that bypasses proven accuracy thresholds once golden sets exist.
 
 **Exit criteria**: Contradictions and curiosity suggestions are explainable; overnight runs are budget-bounded and observable.
@@ -218,7 +225,7 @@ Stages below map to these layers incrementally so each phase ships **usable soft
 | **Privacy** | Encrypt data at rest when not single-machine; clarify retention for audio originals. |
 | **Cost** | Per-feature budget caps; token accounting in episodic log. |
 | **Migration** | **Drizzle** SQL migrations under `apps/api/drizzle/` (Alembic-equivalent discipline); versioned JSON in episodic payloads. |
-| **Observability** | Correlate ingestion → extraction → synthesis runs with a single `trace_id`. |
+| **Observability** | Correlate ingestion → extraction → synthesis runs with a single `trace_id`; execution/observer flows add `run_id`, `step_id`, and artifact references for replay. |
 | **Abuse / safety** | Upload malware scanning; prompt injection defenses on untrusted web content in Stage 2+. |
 
 ---
@@ -295,15 +302,19 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 
 - [ ] Research task model + manual trigger
 - [ ] Agent loop: plan → sub-questions → tools (search, fetch, optional PDF)
+- [ ] Persist `execution_runs` + `execution_steps` for replayable research execution
+- [ ] Observer loop emits typed notes (`observer_note`, `candidate_task`, `candidate_belief`, `uncertainty_flag`, `contradiction_flag`, `coverage_gap`, `novelty_signal`)
+- [ ] Promotion gate stores approvals/rejections separately from canonical belief state
+- [ ] APIs: `POST /research/runs`, `GET /runs/:id/replay`, `GET /runs/:id/observations`, `POST /promotion/:id/approve`
 - [ ] Persist excerpts + claims with URLs, timestamps, dedup keys
-- [ ] Episodic: `research_run_*`, `claim_committed`, etc.
+- [ ] Episodic: `research_run_*`, `claim_committed`, etc., with `run_id` / `step_id` / `artifact_refs` / `observer_verdict` / `promotion_status`
 - [ ] Q&A response schema labels **experience** vs **research** evidence
 
 ### Stage 3 — Synthesis
 
 - [ ] Append-only **belief** records (+ `supersedes` / validity)
 - [ ] Open questions: statuses + link to research tasks
-- [ ] Synthesis job (batch or on-demand) + optional human-confirm toggle
+- [ ] Synthesis job (batch or on-demand) + optional human-confirm toggle; canonical sink for observer-approved belief candidates
 - [ ] Stance aggregation from experience signals → lower-confidence beliefs
 - [ ] APIs: belief timeline, uncertainty, evidence-for-belief
 
@@ -320,6 +331,7 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 - [ ] User resolution flow (validity updates, new beliefs; no silent deletes)
 - [ ] Curiosity signals + ranked suggestions (research / reflection)
 - [ ] Overnight scheduler: budgets, allowlists, observability
+- [ ] Overnight runs use observer loop + promotion gate before any durable task/belief promotion
 - [ ] Evaluation gate on unattended writes (when golden set exists)
 
 ### Stage 6 — Breadth + evaluation
