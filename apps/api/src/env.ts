@@ -7,6 +7,7 @@ const schema = z.object({
   DATA_DIR: z.string().default("./data"),
   DATABASE_URL: z.string().optional(),
   API_KEY: z.string().optional(),
+  WEB_APP_URL: z.string().url().default("http://127.0.0.1:5173"),
   PYTHON_WORKER_URL: z.string().url().default("http://127.0.0.1:8000"),
   MAX_UPLOAD_BYTES: z.coerce.number().default(52_428_800),
 });

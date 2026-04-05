@@ -691,28 +691,25 @@ describe("axion api integration", () => {
       ),
     ).toBe(true);
 
-    const graphView = await app.inject({ method: "GET", url: "/beliefs/graph" });
-    expect(graphView.statusCode).toBe(200);
-    expect(graphView.headers["content-type"]).toContain("text/html");
-    expect(graphView.body).toContain("Graph Explorer");
-    expect(graphView.body).toContain("experience/research/belief node cues");
-    expect(graphView.body).toContain("API Key (optional)");
+    const graphViewRedirect = await app.inject({ method: "GET", url: "/beliefs/graph" });
+    expect(graphViewRedirect.statusCode).toBe(302);
+    expect(graphViewRedirect.headers.location).toContain("http://127.0.0.1:5173/beliefs/graph");
 
-    const timelineView = await app.inject({ method: "GET", url: "/beliefs/timeline/view" });
-    expect(timelineView.statusCode).toBe(200);
-    expect(timelineView.body).toContain("Belief + Activity Timeline");
-    expect(timelineView.body).toContain("major ingest/research markers");
+    const timelineViewRedirect = await app.inject({ method: "GET", url: "/beliefs/timeline/view" });
+    expect(timelineViewRedirect.statusCode).toBe(302);
+    expect(timelineViewRedirect.headers.location).toContain("http://127.0.0.1:5173/beliefs/timeline");
 
-    const replayView = await app.inject({
+    const replayViewRedirect = await app.inject({
       method: "GET",
       url: `/runs/${created.run_id}/replay/view`,
     });
-    expect(replayView.statusCode).toBe(200);
-    expect(replayView.body).toContain("Research Replay");
-    expect(replayView.body).toContain("run steps, episodic events, and artifacts");
+    expect(replayViewRedirect.statusCode).toBe(302);
+    expect(replayViewRedirect.headers.location).toContain(
+      `http://127.0.0.1:5173/runs/${created.run_id}/replay`,
+    );
   });
 
-  it("accepts api_key query fallback for visualization routes when API_KEY is enabled", async () => {
+  it("requires auth on data routes when API_KEY is enabled", async () => {
     const authRoot = mkdtempSync(join(tmpdir(), "axion-api-auth-"));
     const oldDataDir = process.env.DATA_DIR;
     const oldDbUrl = process.env.DATABASE_URL;
@@ -731,20 +728,26 @@ describe("axion api integration", () => {
     const authApp = await buildApp();
     await authApp.ready();
 
-    const unauthorized = await authApp.inject({ method: "GET", url: "/beliefs/graph" });
+    const unauthorized = await authApp.inject({ method: "GET", url: "/timeline/events" });
     expect(unauthorized.statusCode).toBe(401);
 
-    const graphWithQueryKey = await authApp.inject({
-      method: "GET",
-      url: "/beliefs/graph?api_key=stage4-secret",
-    });
-    expect(graphWithQueryKey.statusCode).toBe(200);
+    const unauthorizedViewRedirect = await authApp.inject({ method: "GET", url: "/beliefs/graph" });
+    expect(unauthorizedViewRedirect.statusCode).toBe(401);
 
-    const timelineWithQueryKey = await authApp.inject({
+    const timelineWithHeader = await authApp.inject({
       method: "GET",
-      url: "/timeline/events?api_key=stage4-secret",
+      url: "/timeline/events",
+      headers: { authorization: "Bearer stage4-secret" },
     });
-    expect(timelineWithQueryKey.statusCode).toBe(200);
+    expect(timelineWithHeader.statusCode).toBe(200);
+
+    const viewRedirectWithHeader = await authApp.inject({
+      method: "GET",
+      url: "/beliefs/graph",
+      headers: { authorization: "Bearer stage4-secret" },
+    });
+    expect(viewRedirectWithHeader.statusCode).toBe(302);
+    expect(viewRedirectWithHeader.headers.location).toContain("http://127.0.0.1:5173/beliefs/graph");
 
     await authApp.close();
     rmSync(authRoot, { recursive: true, force: true });

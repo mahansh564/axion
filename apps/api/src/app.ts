@@ -33,9 +33,6 @@ import {
 import {
   getBeliefSubgraph,
   listTimelineEvents,
-  renderGraphViewHtml,
-  renderReplayViewHtml,
-  renderTimelineViewHtml,
 } from "./visualization.js";
 
 export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
@@ -79,6 +76,15 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     if (!value) return undefined;
     const n = Number(value);
     return Number.isFinite(n) ? n : undefined;
+  }
+
+  function redirectToWeb(reqUrl: string, targetPath: string): string {
+    const target = new URL(targetPath, env.WEB_APP_URL);
+    const rawQuery = reqUrl.split("?")[1];
+    if (rawQuery && rawQuery.length > 0) {
+      target.search = rawQuery;
+    }
+    return target.toString();
   }
 
   app.addHook("onRequest", async (req, reply) => {
@@ -445,20 +451,17 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     await reply.send(row);
   });
 
-  app.get("/beliefs/graph", async (_req, reply) => {
-    reply.type("text/html; charset=utf-8");
-    await reply.send(renderGraphViewHtml());
+  app.get("/beliefs/graph", async (req, reply) => {
+    await reply.redirect(redirectToWeb(req.url, "/beliefs/graph"));
   });
 
-  app.get("/beliefs/timeline/view", async (_req, reply) => {
-    reply.type("text/html; charset=utf-8");
-    await reply.send(renderTimelineViewHtml());
+  app.get("/beliefs/timeline/view", async (req, reply) => {
+    await reply.redirect(redirectToWeb(req.url, "/beliefs/timeline"));
   });
 
   app.get("/runs/:id/replay/view", async (req, reply) => {
     const runId = (req.params as { id: string }).id;
-    reply.type("text/html; charset=utf-8");
-    await reply.send(renderReplayViewHtml(runId));
+    await reply.redirect(redirectToWeb(req.url, `/runs/${encodeURIComponent(runId)}/replay`));
   });
 
   app.post("/qa", async (req, reply) => {
