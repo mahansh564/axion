@@ -195,11 +195,26 @@ function createEnvelope(
 }
 
 export type ResearchTaskSource = "user" | "open_question";
+export type ResearchTriggerMode = "manual" | "overnight";
+
+export type ResearchExecutionPolicy = {
+  budget?: {
+    max_subquestions?: number;
+    max_search_results?: number;
+    max_fetches?: number;
+    max_artifacts?: number;
+    max_runtime_ms?: number;
+  };
+  allowlist_domains?: string[];
+};
 
 export type CreateResearchRunInput = {
   goal: string;
   notes?: string;
   source?: ResearchTaskSource;
+  triggerMode?: ResearchTriggerMode;
+  metadata?: Record<string, unknown>;
+  executionPolicy?: ResearchExecutionPolicy;
   traceId: string;
 };
 
@@ -207,7 +222,7 @@ export type CreateResearchRunResult = {
   taskId: string;
   runId: string;
   status: "queued";
-  triggerMode: "manual";
+  triggerMode: ResearchTriggerMode;
   createdAt: number;
 };
 
@@ -288,6 +303,101 @@ function parseJsonObject(value: string | null): Record<string, unknown> | null {
     return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null;
   } catch {
     return null;
+  }
+}
+
+function toPositiveInteger(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const floored = Math.floor(value);
+  return floored > 0 ? floored : null;
+}
+
+function normalizeDomain(value: string): string | null {
+  const candidate = value.trim().toLowerCase();
+  if (!candidate) return null;
+  if (!/^[a-z0-9.-]+$/.test(candidate)) return null;
+  if (!candidate.includes(".")) return null;
+  if (candidate.startsWith(".") || candidate.endsWith(".")) return null;
+  return candidate;
+}
+
+function normalizeExecutionPolicy(policy: ResearchExecutionPolicy | undefined): ResearchExecutionPolicy | undefined {
+  if (!policy) return undefined;
+
+  const normalizedBudget = policy.budget
+    ? {
+        max_subquestions: toPositiveInteger(policy.budget.max_subquestions) ?? undefined,
+        max_search_results: toPositiveInteger(policy.budget.max_search_results) ?? undefined,
+        max_fetches: toPositiveInteger(policy.budget.max_fetches) ?? undefined,
+        max_artifacts: toPositiveInteger(policy.budget.max_artifacts) ?? undefined,
+        max_runtime_ms: toPositiveInteger(policy.budget.max_runtime_ms) ?? undefined,
+      }
+    : undefined;
+
+  const normalizedAllowlist = Array.isArray(policy.allowlist_domains)
+    ? [...new Set(policy.allowlist_domains.map((value) => normalizeDomain(value)).filter((value): value is string => !!value))]
+    : [];
+
+  const hasBudget = normalizedBudget
+    ? Object.values(normalizedBudget).some((value) => typeof value === "number")
+    : false;
+
+  if (!hasBudget && normalizedAllowlist.length === 0) {
+    return undefined;
+  }
+
+  return {
+    budget: hasBudget ? normalizedBudget : undefined,
+    allowlist_domains: normalizedAllowlist.length > 0 ? normalizedAllowlist : undefined,
+  };
+}
+
+type ResolvedExecutionPolicy = {
+  budget: {
+    maxSubquestions: number | null;
+    maxSearchResults: number | null;
+    maxFetches: number | null;
+    maxArtifacts: number | null;
+    maxRuntimeMs: number | null;
+  };
+  allowlistDomains: string[];
+};
+
+function resolveExecutionPolicy(input: Record<string, unknown> | null): ResolvedExecutionPolicy {
+  const policyRaw =
+    typeof input?.execution_policy === "object" && input.execution_policy !== null
+      ? (input.execution_policy as Record<string, unknown>)
+      : null;
+
+  const budgetRaw =
+    policyRaw && typeof policyRaw.budget === "object" && policyRaw.budget !== null
+      ? (policyRaw.budget as Record<string, unknown>)
+      : null;
+
+  const allowlist = policyRaw?.allowlist_domains;
+  const allowlistDomains = Array.isArray(allowlist)
+    ? [...new Set(allowlist.map((value) => (typeof value === "string" ? normalizeDomain(value) : null)).filter((value): value is string => !!value))]
+    : [];
+
+  return {
+    budget: {
+      maxSubquestions: toPositiveInteger(budgetRaw?.max_subquestions),
+      maxSearchResults: toPositiveInteger(budgetRaw?.max_search_results),
+      maxFetches: toPositiveInteger(budgetRaw?.max_fetches),
+      maxArtifacts: toPositiveInteger(budgetRaw?.max_artifacts),
+      maxRuntimeMs: toPositiveInteger(budgetRaw?.max_runtime_ms),
+    },
+    allowlistDomains,
+  };
+}
+
+function hostAllowed(url: string, allowlistDomains: string[]): boolean {
+  if (allowlistDomains.length === 0) return true;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return allowlistDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  } catch {
+    return false;
   }
 }
 
@@ -411,17 +521,34 @@ export function createResearchRun(input: CreateResearchRunInput): CreateResearch
   }
 
   const notes = input.notes?.trim() ? input.notes.trim() : undefined;
+  const triggerMode = input.triggerMode ?? "manual";
+  if (triggerMode !== "manual" && triggerMode !== "overnight") {
+    throw new Error("invalid trigger mode");
+  }
+
+  const normalizedPolicy = normalizeExecutionPolicy(input.executionPolicy);
   const createdAt = now();
   const taskId = randomUUID();
   const runId = randomUUID();
   const status = "queued" as const;
-  const triggerMode = "manual" as const;
-  const metadata = notes ? JSON.stringify({ notes }) : null;
-  const normalizedInput = {
+  const metadataPayload: Record<string, unknown> = {
+    ...(input.metadata ?? {}),
+  };
+  if (notes) {
+    metadataPayload.notes = notes;
+  }
+  const metadata = Object.keys(metadataPayload).length > 0 ? JSON.stringify(metadataPayload) : null;
+  const normalizedInput: Record<string, unknown> = {
     goal,
     source,
     notes: notes ?? null,
   };
+  if (normalizedPolicy) {
+    normalizedInput.execution_policy = normalizedPolicy;
+  }
+  if (input.metadata && Object.keys(input.metadata).length > 0) {
+    normalizedInput.metadata = input.metadata;
+  }
 
   db.transaction((tx) => {
     tx.insert(researchTasks)
@@ -461,6 +588,7 @@ export function createResearchRun(input: CreateResearchRunInput): CreateResearch
         payload: JSON.stringify({
           task_id: taskId,
           run_id: runId,
+          trigger_mode: triggerMode,
           ...normalizedInput,
         }),
         createdAt,
@@ -510,10 +638,51 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
   });
 
   const input = parseJsonObject(run.input);
+  const executionPolicy = resolveExecutionPolicy(input);
   const notes = typeof input?.notes === "string" ? input.notes : undefined;
-  const subquestions = deriveSubquestions(task.goal, notes);
+  const derivedSubquestions = deriveSubquestions(task.goal, notes);
+  const subquestions = executionPolicy.budget.maxSubquestions
+    ? derivedSubquestions.slice(0, executionPolicy.budget.maxSubquestions)
+    : derivedSubquestions;
   const artifactIds: string[] = [];
   const seenArtifactKeys = new Set<string>();
+  const runStartMs = startedAt;
+  let remainingSearchBudget = executionPolicy.budget.maxSearchResults;
+  let remainingFetchBudget = executionPolicy.budget.maxFetches;
+  let remainingArtifactBudget = executionPolicy.budget.maxArtifacts;
+  let budgetStopReason: string | null = null;
+
+  const runtimeLimitMs = executionPolicy.budget.maxRuntimeMs;
+  const runtimeExceeded = (): boolean =>
+    typeof runtimeLimitMs === "number" && runtimeLimitMs > 0 && now() - runStartMs >= runtimeLimitMs;
+
+  const maybeMarkBudgetStop = async (reason: string, detail: Record<string, unknown>): Promise<void> => {
+    if (budgetStopReason) return;
+    budgetStopReason = reason;
+    await writeEvent({
+      traceId,
+      eventType: "research_budget_guardrail_triggered",
+      payload: {
+        ...createEnvelope(runId, null, null, artifactIds),
+        task_id: task.id,
+        trigger_mode: run.triggerMode,
+        reason,
+        detail,
+      },
+    });
+  };
+
+  const storeArtifactWithBudget = async (entry: Parameters<typeof storeArtifact>[1]): Promise<string | null> => {
+    if (typeof remainingArtifactBudget === "number" && remainingArtifactBudget <= 0) {
+      await maybeMarkBudgetStop("max_artifacts", { max_artifacts: executionPolicy.budget.maxArtifacts });
+      return null;
+    }
+    const artifactId = await storeArtifact(seenArtifactKeys, entry);
+    if (artifactId && typeof remainingArtifactBudget === "number") {
+      remainingArtifactBudget -= 1;
+    }
+    return artifactId;
+  };
 
   try {
     const planStep = await createExecutionStep({
@@ -533,7 +702,41 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
       output: { subquestions },
     });
 
+    if (derivedSubquestions.length > subquestions.length) {
+      await writeEvent({
+        traceId,
+        eventType: "research_budget_applied",
+        payload: {
+          ...createEnvelope(runId, planStep.id, null, []),
+          task_id: task.id,
+          trigger_mode: run.triggerMode,
+          reason: "max_subquestions",
+          requested_subquestions: derivedSubquestions.length,
+          scheduled_subquestions: subquestions.length,
+        },
+      });
+    }
+
     for (const question of subquestions) {
+      if (runtimeExceeded()) {
+        await maybeMarkBudgetStop("max_runtime_ms", { max_runtime_ms: runtimeLimitMs });
+        break;
+      }
+      if (typeof remainingSearchBudget === "number" && remainingSearchBudget <= 0) {
+        await maybeMarkBudgetStop("max_search_results", {
+          max_search_results: executionPolicy.budget.maxSearchResults,
+        });
+        break;
+      }
+      if (typeof remainingFetchBudget === "number" && remainingFetchBudget <= 0) {
+        await maybeMarkBudgetStop("max_fetches", { max_fetches: executionPolicy.budget.maxFetches });
+        break;
+      }
+      if (typeof remainingArtifactBudget === "number" && remainingArtifactBudget <= 0) {
+        await maybeMarkBudgetStop("max_artifacts", { max_artifacts: executionPolicy.budget.maxArtifacts });
+        break;
+      }
+
       const searchStep = await createExecutionStep({
         runId,
         parentStepId: planStep.id,
@@ -543,11 +746,39 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
         payload: { query: question },
       });
 
-      const results = await searchWeb(question, traceId);
+      const searchResults = await searchWeb(question, traceId);
+      let results = searchResults;
+
+      if (executionPolicy.allowlistDomains.length > 0) {
+        results = searchResults.filter((result) => hostAllowed(result.url, executionPolicy.allowlistDomains));
+        const filteredCount = searchResults.length - results.length;
+        if (filteredCount > 0) {
+          await writeEvent({
+            traceId,
+            eventType: "overnight_allowlist_filtered",
+            payload: {
+              ...createEnvelope(runId, searchStep.id, planStep.id, []),
+              task_id: task.id,
+              trigger_mode: run.triggerMode,
+              question,
+              filtered_count: filteredCount,
+              allowlist_domains: executionPolicy.allowlistDomains,
+            },
+          });
+        }
+      }
+
+      results = results.slice(0, 3);
+      if (typeof remainingSearchBudget === "number") {
+        const allowed = Math.min(remainingSearchBudget, results.length);
+        results = results.slice(0, allowed);
+        remainingSearchBudget -= allowed;
+      }
+
       const searchArtifactRefs: string[] = [];
 
       for (const result of results) {
-        const artifactId = await storeArtifact(seenArtifactKeys, {
+        const artifactId = await storeArtifactWithBudget({
           runId,
           stepId: searchStep.id,
           kind: "search_result",
@@ -572,8 +803,22 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
         },
       });
 
-      const fetchTargets = results.slice(0, 2);
+      let fetchTargets = results.slice(0, 2);
+      if (typeof remainingFetchBudget === "number") {
+        const allowedFetches = Math.min(remainingFetchBudget, fetchTargets.length);
+        fetchTargets = fetchTargets.slice(0, allowedFetches);
+        remainingFetchBudget -= allowedFetches;
+      }
       for (const result of fetchTargets) {
+        if (runtimeExceeded()) {
+          await maybeMarkBudgetStop("max_runtime_ms", { max_runtime_ms: runtimeLimitMs });
+          break;
+        }
+        if (typeof remainingArtifactBudget === "number" && remainingArtifactBudget <= 0) {
+          await maybeMarkBudgetStop("max_artifacts", { max_artifacts: executionPolicy.budget.maxArtifacts });
+          break;
+        }
+
         const fetchStep = await createExecutionStep({
           runId,
           parentStepId: searchStep.id,
@@ -602,7 +847,12 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
         const excerpts = pickRelevantSentences(fetched.text, question);
         const localArtifactRefs: string[] = [];
         for (const excerpt of excerpts) {
-          const excerptArtifactId = await storeArtifact(seenArtifactKeys, {
+          if (runtimeExceeded()) {
+            await maybeMarkBudgetStop("max_runtime_ms", { max_runtime_ms: runtimeLimitMs });
+            break;
+          }
+
+          const excerptArtifactId = await storeArtifactWithBudget({
             runId,
             stepId: fetchStep.id,
             kind: "excerpt",
@@ -616,7 +866,7 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
             localArtifactRefs.push(excerptArtifactId);
           }
 
-          const claimArtifactId = await storeArtifact(seenArtifactKeys, {
+          const claimArtifactId = await storeArtifactWithBudget({
             runId,
             stepId: fetchStep.id,
             kind: "claim",
@@ -652,6 +902,10 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
             artifact_refs: localArtifactRefs,
           },
         });
+
+        if (budgetStopReason) {
+          break;
+        }
       }
 
       await writeEvent({
@@ -664,6 +918,10 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
           urls: results.map((result) => result.url),
         },
       });
+
+      if (budgetStopReason) {
+        break;
+      }
     }
 
     const completedAt = now();

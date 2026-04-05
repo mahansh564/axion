@@ -17,6 +17,11 @@ import { env } from "./env.js";
 import { ingestVoiceNote } from "./experiencePipeline.js";
 import { withTrace } from "./log.js";
 import { getObserverNotesForRun, reviewPromotion } from "./observerPipeline.js";
+import {
+  createOvernightSchedule,
+  dispatchOvernightSchedules,
+  listOvernightSchedules,
+} from "./overnightPipeline.js";
 import { pythonHealth } from "./pythonClient.js";
 import { createResearchRun, executeResearchRun, getResearchRunReplay } from "./researchPipeline.js";
 import {
@@ -36,10 +41,7 @@ import {
   oneHopNeighbors,
   questionKeywords,
 } from "./search.js";
-import {
-  getBeliefSubgraph,
-  listTimelineEvents,
-} from "./visualization.js";
+import { getBeliefSubgraph, listTimelineEvents } from "./visualization.js";
 
 export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
   const app = Fastify({
@@ -217,6 +219,75 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
       const statusCode = message === "run not found" ? 404 : 409;
       await reply.status(statusCode).send({ error: message });
     }
+  });
+
+  app.post("/overnight/schedules", async (req, reply) => {
+    const body = (req.body ?? {}) as {
+      name?: unknown;
+      goal?: unknown;
+      notes?: unknown;
+      hour_utc?: unknown;
+      minute_utc?: unknown;
+      budget?: unknown;
+      allowlist_domains?: unknown;
+      status?: unknown;
+    };
+
+    try {
+      const created = await createOvernightSchedule({
+        name: typeof body.name === "string" ? body.name : "",
+        goal: typeof body.goal === "string" ? body.goal : "",
+        notes: typeof body.notes === "string" ? body.notes : undefined,
+        hourUtc: typeof body.hour_utc === "number" ? body.hour_utc : Number.NaN,
+        minuteUtc: typeof body.minute_utc === "number" ? body.minute_utc : Number.NaN,
+        budget: body.budget,
+        allowlistDomains: body.allowlist_domains,
+        status: typeof body.status === "string" ? body.status : undefined,
+      });
+      await reply.status(201).send(created);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await reply.status(400).send({ error: message });
+    }
+  });
+
+  app.get("/overnight/schedules", async (req, reply) => {
+    const query = req.query as { status?: string };
+    const payload = await listOvernightSchedules({ status: query.status });
+    await reply.send(payload);
+  });
+
+  app.post("/overnight/schedules/:id/run", async (req, reply) => {
+    const traceId = (req as FastifyRequest & { traceId: string }).traceId;
+    const scheduleId = (req.params as { id: string }).id;
+    const body = (req.body ?? {}) as { force?: unknown };
+    const force = typeof body.force === "boolean" ? body.force : true;
+
+    const payload = await dispatchOvernightSchedules({
+      traceId,
+      force,
+      scheduleId,
+    });
+
+    if (payload.schedule_count === 0) {
+      await reply.status(404).send({ error: "schedule not found or inactive" });
+      return;
+    }
+    await reply.send(payload);
+  });
+
+  app.post("/overnight/dispatch", async (req, reply) => {
+    const traceId = (req as FastifyRequest & { traceId: string }).traceId;
+    const body = (req.body ?? {}) as {
+      force?: unknown;
+      schedule_id?: unknown;
+    };
+    const payload = await dispatchOvernightSchedules({
+      traceId,
+      force: typeof body.force === "boolean" ? body.force : false,
+      scheduleId: typeof body.schedule_id === "string" ? body.schedule_id : undefined,
+    });
+    await reply.send(payload);
   });
 
   app.get("/runs/:id/replay", async (req, reply) => {
