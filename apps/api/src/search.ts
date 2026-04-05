@@ -1,7 +1,7 @@
-import { inArray, or, sql } from "drizzle-orm";
+import { and, inArray, or, sql } from "drizzle-orm";
 
 import { db } from "./db/client.js";
-import { documents, graphEdges, graphNodes } from "./db/schema.js";
+import { documents, graphEdges, graphNodes, researchArtifacts } from "./db/schema.js";
 
 const STOP = new Set([
   "what",
@@ -63,6 +63,60 @@ export async function findDocumentsForQuestion(question: string): Promise<
     .map((r) => ({ ...r, score: scoreBody(r.body, tokens) }))
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score || b.body.length - a.body.length)
+    .slice(0, 20);
+}
+
+export async function findResearchArtifactsForQuestion(question: string): Promise<
+  Array<{ id: string; content: string; url: string | null; title: string | null; kind: string; score: number }>
+> {
+  const tokens = questionKeywords(question);
+  if (tokens.length === 0) {
+    const rows = await db
+      .select({
+        id: researchArtifacts.id,
+        content: researchArtifacts.content,
+        url: researchArtifacts.url,
+        title: researchArtifacts.title,
+        kind: researchArtifacts.kind,
+      })
+      .from(researchArtifacts)
+      .where(or(sql`${researchArtifacts.kind} = ${"claim"}`, sql`${researchArtifacts.kind} = ${"excerpt"}`))
+      .limit(20);
+    return rows.map((row) => ({ ...row, score: 0 }));
+  }
+
+  const conditions = tokens.map(
+    (token) =>
+      or(
+        sql`lower(${researchArtifacts.content}) like ${"%" + token + "%"}`,
+        sql`lower(${researchArtifacts.title}) like ${"%" + token + "%"}`,
+      ),
+  );
+
+  const rows = await db
+    .select({
+      id: researchArtifacts.id,
+      content: researchArtifacts.content,
+      url: researchArtifacts.url,
+      title: researchArtifacts.title,
+      kind: researchArtifacts.kind,
+    })
+    .from(researchArtifacts)
+    .where(
+      and(
+        or(sql`${researchArtifacts.kind} = ${"claim"}`, sql`${researchArtifacts.kind} = ${"excerpt"}`),
+        or(...conditions),
+      ),
+    )
+    .limit(200);
+
+  return rows
+    .map((row) => ({
+      ...row,
+      score: scoreBody(`${row.title ?? ""} ${row.content}`, tokens),
+    }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || b.content.length - a.content.length)
     .slice(0, 20);
 }
 
