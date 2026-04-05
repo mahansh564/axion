@@ -8,6 +8,41 @@
       "when": 1774898987602,
       "tag": "0000_initial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1775394144354,
+      "tag": "0001_sour_goblin_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1775394610530,
+      "tag": "0002_quick_mulholland_black",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1775394766590,
+      "tag": "0003_past_natasha_romanoff",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1775395599197,
+      "tag": "0004_numerous_blonde_phantom",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1775396008147,
+      "tag": "0005_wonderful_warpath",
+      "breakpoints": true
     }
   ]
 }
