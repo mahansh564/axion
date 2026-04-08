@@ -14,7 +14,7 @@ import {
 } from "./contradictionPipeline.js";
 import { listCuriositySuggestions } from "./curiosityPipeline.js";
 import { env } from "./env.js";
-import { ingestVoiceNote } from "./experiencePipeline.js";
+import { ingestTextExperience, ingestVoiceNote } from "./experiencePipeline.js";
 import { withTrace } from "./log.js";
 import { getObserverNotesForRun, reviewPromotion } from "./observerPipeline.js";
 import {
@@ -136,6 +136,40 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     }
     const workerOk = await pythonHealth(traceId);
     return { ready: dbOk, db: dbOk, worker: workerOk };
+  });
+
+  app.post("/experiences/conversation", async (req, reply) => {
+    const traceId = (req as FastifyRequest & { traceId: string }).traceId;
+    const log = withTrace(traceId);
+    const body = (req.body ?? {}) as {
+      text?: unknown;
+      channel?: unknown;
+      title?: unknown;
+    };
+    const text = typeof body.text === "string" ? body.text : "";
+    const title = typeof body.title === "string" ? body.title : undefined;
+    const rawChannel = body.channel === undefined ? "conversation" : body.channel;
+    if (rawChannel !== "conversation" && rawChannel !== "manual_log") {
+      await reply.status(400).send({ error: "channel must be conversation or manual_log" });
+      return;
+    }
+    if (!text.trim()) {
+      await reply.status(400).send({ error: "text required" });
+      return;
+    }
+    try {
+      const out = await ingestTextExperience({
+        text,
+        channel: rawChannel,
+        title: title ?? null,
+        traceId,
+      });
+      log.info({ event: "text_experience_ingest_ok", ...out });
+      await reply.status(201).send(out);
+    } catch (e) {
+      log.error({ event: "text_experience_ingest_err", err: String(e) });
+      await reply.status(502).send({ error: "ingest_failed", detail: String(e) });
+    }
   });
 
   app.post("/experiences/voice", async (req, reply) => {

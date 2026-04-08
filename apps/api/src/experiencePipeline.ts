@@ -93,6 +93,7 @@ export async function ingestVoiceNote(input: {
   await db.insert(experienceRecords).values({
     id: experienceId,
     createdAt,
+    channel: "voice",
     audioRelpath,
     mimeType: input.mimeType,
   });
@@ -140,6 +141,95 @@ export async function ingestVoiceNote(input: {
   const extraction = await extractStructured({
     documentId,
     text: tr.text,
+    traceId: input.traceId,
+  });
+
+  await applyExtractionToGraph({ documentId, extraction });
+
+  await db.insert(episodicEvents).values({
+    id: randomUUID(),
+    eventType: "extract_completed",
+    traceId: input.traceId,
+    payload: JSON.stringify({
+      document_id: documentId,
+      model_id: extraction.model_id,
+      entity_count: extraction.entities.length,
+    }),
+    createdAt: now(),
+  });
+
+  return { experienceId, documentId };
+}
+
+export type TextExperienceChannel = "conversation" | "manual_log";
+
+export async function ingestTextExperience(input: {
+  text: string;
+  channel: TextExperienceChannel;
+  traceId: string;
+  title?: string | null;
+}): Promise<{ experienceId: string; documentId: string }> {
+  const log = withTrace(input.traceId);
+  const body = input.text.trim();
+  if (!body) {
+    throw new Error("text required");
+  }
+
+  const experienceId = randomUUID();
+  const createdAt = now();
+
+  await db.insert(experienceRecords).values({
+    id: experienceId,
+    createdAt,
+    channel: input.channel,
+    audioRelpath: null,
+    mimeType: "text/plain",
+  });
+
+  await db.insert(episodicEvents).values({
+    id: randomUUID(),
+    eventType: "text_experience_ingested",
+    traceId: input.traceId,
+    payload: JSON.stringify({
+      experience_id: experienceId,
+      channel: input.channel,
+      title: input.title ?? null,
+      char_count: body.length,
+    }),
+    createdAt: now(),
+  });
+
+  const documentId = randomUUID();
+  await db.insert(documents).values({
+    id: documentId,
+    experienceId,
+    kind: "conversation_log",
+    body,
+    sourceModel: null,
+    createdAt: now(),
+    metadata: JSON.stringify({
+      channel: input.channel,
+      title: input.title ?? null,
+    }),
+  });
+
+  await db.insert(episodicEvents).values({
+    id: randomUUID(),
+    eventType: "conversation_log_stored",
+    traceId: input.traceId,
+    payload: JSON.stringify({
+      experience_id: experienceId,
+      document_id: documentId,
+      channel: input.channel,
+    }),
+    createdAt: now(),
+  });
+
+  log.info({ event: "conversation_log_stored", document_id: documentId, channel: input.channel });
+
+  const extraction = await extractStructured({
+    documentId,
+    text: body,
     traceId: input.traceId,
   });
 
