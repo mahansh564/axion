@@ -158,6 +158,45 @@ describe("axion api integration", () => {
     expect(qaBody.gaps).toContain("no_research_matches");
   });
 
+  it("conversation log ingestion pipeline and qa", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/experiences/conversation",
+      payload: {
+        text: "During the chat we agreed Berlin is a great base for research.",
+        channel: "conversation",
+        title: "Planning chat",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body) as { experienceId: string; documentId: string };
+    expect(body.experienceId).toBeTruthy();
+    expect(body.documentId).toBeTruthy();
+
+    const qa = await app.inject({
+      method: "POST",
+      url: "/qa",
+      payload: { question: "What did we say about Berlin?" },
+      headers: { "content-type": "application/json" },
+    });
+    expect(qa.statusCode).toBe(200);
+    const qaBody = JSON.parse(qa.body) as {
+      citations: Array<{ document_id: string; source_type: string }>;
+    };
+    expect(qaBody.citations.some((c) => c.document_id === body.documentId)).toBe(true);
+  });
+
+  it("rejects invalid conversation channel", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/experiences/conversation",
+      payload: { text: "hello", channel: "voice" },
+      headers: { "content-type": "application/json" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("creates a queued research task and run", async () => {
     const res = await app.inject({
       method: "POST",
@@ -1186,6 +1225,7 @@ describe("axion api integration", () => {
     await db.insert(experienceRecords).values({
       id: experienceId,
       createdAt: now - 2 * 24 * 60 * 60 * 1000,
+      channel: "voice",
       audioRelpath: "voice/curiosity.wav",
       mimeType: "audio/wav",
     });
