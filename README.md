@@ -51,6 +51,7 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
    - `GET /health` — process OK
    - `GET /ready` — SQLite OK + worker `/health` reachable
    - `POST /experiences/voice` — multipart audio → transcript → graph + episodic events
+   - `POST /experiences/conversation` — JSON body (`text`, optional `channel`: `conversation` \| `manual_log`, optional `title`) → stored log → same extraction + graph path as voice (no audio)
    - `POST /research/runs` — create a queued research task/run for manual execution triggers
    - `POST /research/runs/:id/execute` — execute a queued research run through plan/search/fetch steps
    - `GET /runs/:id/replay` — inspect stored run/task/step/artifact/event state for a research run

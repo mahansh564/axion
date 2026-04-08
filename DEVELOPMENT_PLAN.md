@@ -336,7 +336,7 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 
 ### Stage 6 — Breadth + evaluation
 
-- [ ] Conversation / manual log ingestion path
+- [x] Conversation / manual log ingestion path
 - [ ] Highlights & annotations pipeline + “mattered” weighting
 - [ ] Social / trusted-person nodes + credibility on edges
 - [ ] Daily reflection prompts + structured storage

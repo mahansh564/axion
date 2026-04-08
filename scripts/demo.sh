@@ -21,6 +21,13 @@ curl -fsS -X POST "$API/qa" \
   -H 'content-type: application/json' \
   -d '{"question":"What did I say about Berlin?"}' | python3 -m json.tool
 
+echo ""
+echo "POST conversation log (manual / chat text)..."
+curl -fsS -X POST "$API/experiences/conversation" \
+  -H 'content-type: application/json' \
+  -d '{"text":"Manual note: I want to dig into Berlin startup scene next week.","channel":"manual_log","title":"Weekly plan"}' \
+  | python3 -m json.tool
+
 rm -f "$TMP"
 echo ""
 echo "Demo done."
