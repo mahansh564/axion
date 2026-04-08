@@ -7,6 +7,7 @@ import {
   beliefEvidence,
   beliefRecords,
   documents,
+  EXPERIENCE_TEXT_DOCUMENT_KINDS,
   executionRuns,
   observerNotes,
   openQuestions,
@@ -562,13 +563,18 @@ export async function aggregateStanceBeliefs(input?: {
     ? await db
         .select()
         .from(documents)
-        .where(and(eq(documents.kind, "transcript"), sql`lower(${documents.body}) like ${"%" + topic + "%"}`))
+        .where(
+          and(
+            inArray(documents.kind, [...EXPERIENCE_TEXT_DOCUMENT_KINDS]),
+            sql`lower(${documents.body}) like ${"%" + topic + "%"}`,
+          ),
+        )
         .orderBy(desc(documents.createdAt))
         .limit(maxDocuments)
     : await db
         .select()
         .from(documents)
-        .where(eq(documents.kind, "transcript"))
+        .where(inArray(documents.kind, [...EXPERIENCE_TEXT_DOCUMENT_KINDS]))
         .orderBy(desc(documents.createdAt))
         .limit(maxDocuments);
 

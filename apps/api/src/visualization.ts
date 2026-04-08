@@ -12,6 +12,7 @@ import {
 
 const MAJOR_TIMELINE_EVENTS = new Set([
   "transcribe_completed",
+  "conversation_log_stored",
   "extract_completed",
   "research_run_requested",
   "research_run_started",
@@ -78,6 +79,12 @@ function timelineEventTitle(eventType: string, payload: Record<string, unknown>)
   if (eventType === "transcribe_completed") {
     const documentId = typeof payload.document_id === "string" ? payload.document_id : null;
     return documentId ? `Transcript stored (${documentId})` : "Transcript stored";
+  }
+  if (eventType === "conversation_log_stored") {
+    const ch = typeof payload.channel === "string" ? payload.channel : null;
+    if (ch === "manual_log") return "Manual log stored";
+    if (ch === "conversation") return "Conversation log stored";
+    return "Text experience stored";
   }
   if (eventType === "extract_completed") {
     const count = typeof payload.entity_count === "number" ? payload.entity_count : null;

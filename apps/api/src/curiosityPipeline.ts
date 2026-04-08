@@ -1,7 +1,13 @@
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import { db } from "./db/client.js";
-import { beliefRecords, documents, observerNotes, openQuestions } from "./db/schema.js";
+import {
+  beliefRecords,
+  documents,
+  EXPERIENCE_TEXT_DOCUMENT_KINDS,
+  observerNotes,
+  openQuestions,
+} from "./db/schema.js";
 import { questionKeywords } from "./search.js";
 
 type CuriositySuggestion = {
@@ -131,8 +137,11 @@ export async function listCuriositySuggestions(input?: {
       .from(documents)
       .where(
         topicFilter
-          ? and(eq(documents.kind, "transcript"), sql`lower(${documents.body}) like ${"%" + topicFilter + "%"}`)
-          : eq(documents.kind, "transcript"),
+          ? and(
+              inArray(documents.kind, [...EXPERIENCE_TEXT_DOCUMENT_KINDS]),
+              sql`lower(${documents.body}) like ${"%" + topicFilter + "%"}`,
+            )
+          : inArray(documents.kind, [...EXPERIENCE_TEXT_DOCUMENT_KINDS]),
       )
       .orderBy(desc(documents.createdAt))
       .limit(160)
