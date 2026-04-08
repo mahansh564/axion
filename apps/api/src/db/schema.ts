@@ -1,9 +1,14 @@
 import { AnySQLiteColumn, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
+/** Document kinds that hold user experience text for retrieval, stance aggregation, and curiosity. */
+export const EXPERIENCE_TEXT_DOCUMENT_KINDS = ["transcript", "conversation_log"] as const;
+
+/** `voice` = audio blob + transcribe; `conversation` / `manual_log` = text body only (no audio). */
 export const experienceRecords = sqliteTable("experience_records", {
   id: text("id").primaryKey(),
   createdAt: integer("created_at", { mode: "number" }).notNull(),
-  audioRelpath: text("audio_relpath").notNull(),
+  channel: text("channel").notNull().default("voice"),
+  audioRelpath: text("audio_relpath"),
   mimeType: text("mime_type").notNull(),
 });
 
