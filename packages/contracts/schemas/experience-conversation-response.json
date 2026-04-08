@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/experience-conversation-response.json",
+  "title": "ExperienceConversationResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["experienceId", "documentId"],
+  "properties": {
+    "experienceId": { "type": "string", "minLength": 1 },
+    "documentId": { "type": "string", "minLength": 1 }
+  }
+}
