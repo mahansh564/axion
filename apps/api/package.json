@@ -10,6 +10,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "eval:seed": "node --import tsx src/evaluationRunner.ts seed",
+    "eval:run": "node --import tsx src/evaluationRunner.ts run",
+    "eval:trend": "node --import tsx src/evaluationRunner.ts trend",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },

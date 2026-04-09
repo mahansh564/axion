@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "topics": [
+    {
+      "id": "berlin",
+      "expected_answer": "Berlin remains a preferred base for deep research work.",
+      "metadata": {
+        "must_contain": ["evalberlin"],
+        "required_source_types": ["experience"],
+        "minimum_experience_citations": 1
+      },
+      "questions": [
+        "What did I record about evalberlin?",
+        "Summarize my experience notes on evalberlin.",
+        "What do my logs say about evalberlin focus?",
+        "Give me context from my notes about evalberlin.",
+        "What have I said regarding evalberlin?"
+      ]
+    },
+    {
+      "id": "sleep",
+      "expected_answer": "Morning sunlight and routine cues helped sleep onset.",
+      "metadata": {
+        "must_contain": ["evalsleep"],
+        "required_source_types": ["experience"],
+        "minimum_experience_citations": 1
+      },
+      "questions": [
+        "What do I know about evalsleep?",
+        "What did I capture about evalsleep routine?",
+        "Summarize experience evidence for evalsleep.",
+        "What did I write around evalsleep onset?",
+        "Pull my notes on evalsleep changes."
+      ]
+    },
+    {
+      "id": "social",
+      "expected_answer": "Trusted-source social notes mention biomarker priorities.",
+      "metadata": {
+        "must_contain": ["evalsocial"],
+        "required_source_types": ["experience"],
+        "minimum_experience_citations": 1
+      },
+      "questions": [
+        "What social evidence exists for evalsocial?",
+        "What did trusted people say about evalsocial?",
+        "Summarize my social logs on evalsocial.",
+        "What did Dr Rivera mention about evalsocial?",
+        "Show experience context for evalsocial."
+      ]
+    },
+    {
+      "id": "magnesium",
+      "expected_answer": "There is uncertainty around magnesium dosing.",
+      "metadata": {
+        "must_contain": ["evalmagnesium"],
+        "required_source_types": ["experience"],
+        "minimum_experience_citations": 1
+      },
+      "questions": [
+        "What am I uncertain about for evalmagnesium?",
+        "What did I reflect on evalmagnesium dosing?",
+        "Summarize notes about evalmagnesium uncertainty.",
+        "What do my records say about evalmagnesium?",
+        "Give me my experience context for evalmagnesium."
+      ]
+    },
+    {
+      "id": "morninglight",
+      "expected_answer": "Morning light exposure was linked to improved mood.",
+      "metadata": {
+        "must_contain": ["evalmorninglight"],
+        "required_source_types": ["experience"],
+        "minimum_experience_citations": 1
+      },
+      "questions": [
+        "What did I note about evalmorninglight?",
+        "Summarize evidence for evalmorninglight from my experiences.",
+        "What was captured about evalmorninglight and mood?",
+        "Show my logs regarding evalmorninglight.",
+        "What do my records indicate on evalmorninglight?"
+      ]
+    },
+    {
+      "id": "paris",
+      "expected_answer": "Paris felt less focused than Berlin for deep work.",
+      "metadata": {
+        "required_source_types": ["experience"],
+        "minimum_experience_citations": 1
+      },
+      "questions": [
+        "What have I said about evalparis?",
+        "Summarize my notes on evalparis focus.",
+        "What context exists for evalparis in my logs?",
+        "What did I record regarding evalparis?",
+        "Give experience-backed details on evalparis."
+      ]
+    },
+    {
+      "id": "metformin",
+      "expected_answer": "Research evidence for metformin in healthy adults is mixed.",
+      "metadata": {
+        "must_contain": ["evalmetformin"],
+        "required_source_types": ["research"],
+        "minimum_research_citations": 1
+      },
+      "questions": [
+        "What does research say about evalmetformin?",
+        "Summarize literature evidence for evalmetformin.",
+        "What does the research record show for evalmetformin?",
+        "Give research-backed notes on evalmetformin.",
+        "What findings are stored for evalmetformin?"
+      ]
+    },
+    {
+      "id": "rapa",
+      "expected_answer": "Rapa evidence includes both experience notes and research citations.",
+      "metadata": {
+        "must_contain": ["evalrapa"],
+        "required_source_types": ["experience", "research"],
+        "minimum_experience_citations": 1,
+        "minimum_research_citations": 1
+      },
+      "questions": [
+        "What do I know overall about evalrapa?",
+        "Combine my notes and research on evalrapa.",
+        "Summarize experience and research evidence for evalrapa.",
+        "What have I observed and read about evalrapa?",
+        "Give blended evidence for evalrapa."
+      ]
+    },
+    {
+      "id": "protein",
+      "expected_answer": "Protein guidance includes both lived tracking and research context.",
+      "metadata": {
+        "must_contain": ["evalprotein"],
+        "required_source_types": ["experience", "research"],
+        "minimum_experience_citations": 1,
+        "minimum_research_citations": 1
+      },
+      "questions": [
+        "What is known about evalprotein from my system?",
+        "Summarize blended evidence on evalprotein.",
+        "What do experiences plus research show for evalprotein?",
+        "Give context for evalprotein from all sources.",
+        "What does Axion store about evalprotein?"
+      ]
+    },
+    {
+      "id": "rapa-safety",
+      "expected_answer": "Research highlights safety uncertainty for rapa dosing.",
+      "metadata": {
+        "required_source_types": ["research"],
+        "minimum_research_citations": 1
+      },
+      "questions": [
+        "What does research indicate for evalrapasafety?",
+        "Summarize literature concerns on evalrapasafety.",
+        "What evidence exists around evalrapasafety?",
+        "Provide research citations for evalrapasafety.",
+        "What is stored about evalrapasafety risk?"
+      ]
+    }
+  ]
+}
