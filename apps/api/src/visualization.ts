@@ -13,6 +13,9 @@ import {
 const MAJOR_TIMELINE_EVENTS = new Set([
   "transcribe_completed",
   "conversation_log_stored",
+  "highlight_annotation_stored",
+  "social_log_stored",
+  "reflection_stored",
   "extract_completed",
   "research_run_requested",
   "research_run_started",
@@ -85,6 +88,17 @@ function timelineEventTitle(eventType: string, payload: Record<string, unknown>)
     if (ch === "manual_log") return "Manual log stored";
     if (ch === "conversation") return "Conversation log stored";
     return "Text experience stored";
+  }
+  if (eventType === "highlight_annotation_stored") {
+    const sourceKind = typeof payload.source_kind === "string" ? payload.source_kind : null;
+    return sourceKind ? `Highlight stored (${sourceKind})` : "Highlight stored";
+  }
+  if (eventType === "social_log_stored") {
+    const person = typeof payload.person === "string" ? payload.person : null;
+    return person ? `Social log stored (${person})` : "Social log stored";
+  }
+  if (eventType === "reflection_stored") {
+    return "Daily reflection stored";
   }
   if (eventType === "extract_completed") {
     const count = typeof payload.entity_count === "number" ? payload.entity_count : null;
@@ -522,4 +536,3 @@ export async function listTimelineEvents(input?: {
     events,
   };
 }
-

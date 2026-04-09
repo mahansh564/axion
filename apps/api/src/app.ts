@@ -14,7 +14,14 @@ import {
 } from "./contradictionPipeline.js";
 import { listCuriositySuggestions } from "./curiosityPipeline.js";
 import { env } from "./env.js";
-import { ingestTextExperience, ingestVoiceNote } from "./experiencePipeline.js";
+import {
+  ingestDailyReflection,
+  ingestHighlightAnnotation,
+  ingestSocialExperience,
+  ingestTextExperience,
+  ingestVoiceNote,
+  listDailyReflectionPrompts,
+} from "./experiencePipeline.js";
 import { withTrace } from "./log.js";
 import { getObserverNotesForRun, reviewPromotion } from "./observerPipeline.js";
 import {
@@ -84,6 +91,12 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     if (!value) return undefined;
     const n = Number(value);
     return Number.isFinite(n) ? n : undefined;
+  }
+
+  function parseOptionalUnitNumber(value: unknown): number | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) return undefined;
+    return value;
   }
 
   function redirectToWeb(reqUrl: string, targetPath: string): string {
@@ -168,6 +181,169 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
       await reply.status(201).send(out);
     } catch (e) {
       log.error({ event: "text_experience_ingest_err", err: String(e) });
+      await reply.status(502).send({ error: "ingest_failed", detail: String(e) });
+    }
+  });
+
+  app.post("/experiences/highlights", async (req, reply) => {
+    const traceId = (req as FastifyRequest & { traceId: string }).traceId;
+    const log = withTrace(traceId);
+    const body = (req.body ?? {}) as {
+      highlight?: unknown;
+      annotation?: unknown;
+      title?: unknown;
+      source_kind?: unknown;
+      source_ref?: unknown;
+      mattered_score?: unknown;
+    };
+    const highlight = typeof body.highlight === "string" ? body.highlight : "";
+    const annotation = typeof body.annotation === "string" ? body.annotation : undefined;
+    const title = typeof body.title === "string" ? body.title : undefined;
+    const sourceRef = typeof body.source_ref === "string" ? body.source_ref : undefined;
+    const rawSourceKind = body.source_kind === undefined ? "other" : body.source_kind;
+    const matteredScore = parseOptionalUnitNumber(body.mattered_score);
+
+    if (!highlight.trim()) {
+      await reply.status(400).send({ error: "highlight required" });
+      return;
+    }
+    if (
+      rawSourceKind !== "book" &&
+      rawSourceKind !== "pdf" &&
+      rawSourceKind !== "article" &&
+      rawSourceKind !== "web" &&
+      rawSourceKind !== "note" &&
+      rawSourceKind !== "other"
+    ) {
+      await reply.status(400).send({ error: "source_kind must be book|pdf|article|web|note|other" });
+      return;
+    }
+    if (body.mattered_score !== undefined && matteredScore === undefined) {
+      await reply.status(400).send({ error: "mattered_score must be a number between 0 and 1" });
+      return;
+    }
+
+    try {
+      const out = await ingestHighlightAnnotation({
+        highlight,
+        annotation,
+        title: title ?? null,
+        sourceKind: rawSourceKind,
+        sourceRef,
+        traceId,
+        matteredScore,
+      });
+      log.info({ event: "highlight_annotation_ingest_ok", ...out });
+      await reply.status(201).send({
+        ...out,
+        mattered_score: matteredScore ?? 0.7,
+      });
+    } catch (e) {
+      log.error({ event: "highlight_annotation_ingest_err", err: String(e) });
+      await reply.status(502).send({ error: "ingest_failed", detail: String(e) });
+    }
+  });
+
+  app.post("/experiences/social", async (req, reply) => {
+    const traceId = (req as FastifyRequest & { traceId: string }).traceId;
+    const log = withTrace(traceId);
+    const body = (req.body ?? {}) as {
+      text?: unknown;
+      person?: unknown;
+      title?: unknown;
+      relationship?: unknown;
+      credibility?: unknown;
+    };
+    const text = typeof body.text === "string" ? body.text : "";
+    const person = typeof body.person === "string" ? body.person.trim() : "";
+    const title = typeof body.title === "string" ? body.title : undefined;
+    const relationship = typeof body.relationship === "string" ? body.relationship : undefined;
+    const credibility = parseOptionalUnitNumber(body.credibility);
+
+    if (!text.trim()) {
+      await reply.status(400).send({ error: "text required" });
+      return;
+    }
+    if (!person.trim()) {
+      await reply.status(400).send({ error: "person required" });
+      return;
+    }
+    if (body.credibility !== undefined && credibility === undefined) {
+      await reply.status(400).send({ error: "credibility must be a number between 0 and 1" });
+      return;
+    }
+
+    try {
+      const out = await ingestSocialExperience({
+        text,
+        person,
+        title: title ?? null,
+        relationship,
+        traceId,
+        credibility,
+      });
+      log.info({ event: "social_experience_ingest_ok", ...out });
+      await reply.status(201).send({
+        ...out,
+      });
+    } catch (e) {
+      log.error({ event: "social_experience_ingest_err", err: String(e) });
+      await reply.status(502).send({ error: "ingest_failed", detail: String(e) });
+    }
+  });
+
+  app.get("/reflections/prompts", async () => {
+    return {
+      generated_at: Date.now(),
+      prompts: listDailyReflectionPrompts(),
+    };
+  });
+
+  app.post("/experiences/reflections", async (req, reply) => {
+    const traceId = (req as FastifyRequest & { traceId: string }).traceId;
+    const log = withTrace(traceId);
+    const body = (req.body ?? {}) as {
+      prompt?: unknown;
+      response?: unknown;
+      mood?: unknown;
+      title?: unknown;
+      mattered_score?: unknown;
+    };
+    const prompt = typeof body.prompt === "string" ? body.prompt : "";
+    const responseText = typeof body.response === "string" ? body.response : "";
+    const mood = typeof body.mood === "string" ? body.mood : undefined;
+    const title = typeof body.title === "string" ? body.title : undefined;
+    const matteredScore = parseOptionalUnitNumber(body.mattered_score);
+
+    if (!prompt.trim()) {
+      await reply.status(400).send({ error: "prompt required" });
+      return;
+    }
+    if (!responseText.trim()) {
+      await reply.status(400).send({ error: "response required" });
+      return;
+    }
+    if (body.mattered_score !== undefined && matteredScore === undefined) {
+      await reply.status(400).send({ error: "mattered_score must be a number between 0 and 1" });
+      return;
+    }
+
+    try {
+      const out = await ingestDailyReflection({
+        prompt,
+        response: responseText,
+        mood,
+        title: title ?? null,
+        traceId,
+        matteredScore,
+      });
+      log.info({ event: "reflection_ingest_ok", ...out, mattered_score: matteredScore ?? 0.65 });
+      await reply.status(201).send({
+        ...out,
+        mattered_score: matteredScore ?? 0.65,
+      });
+    } catch (e) {
+      log.error({ event: "reflection_ingest_err", err: String(e) });
       await reply.status(502).send({ error: "ingest_failed", detail: String(e) });
     }
   });
@@ -722,7 +898,7 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
       .slice(0, 3)
       .map((h) => `${h.title ? `${h.title}: ` : ""}${excerptAround(h.content, tokens)}`);
     const answerSections = [
-      hits.length > 0 ? "Based on your transcripts:" : "",
+      hits.length > 0 ? "Based on your experience records:" : "",
       ...experienceParts.map((s, i) => `${i + 1}. ${s}`),
       researchHits.length > 0 ? "Research evidence:" : "",
       ...researchParts.map((s, i) => `${i + 1}. ${s}`),

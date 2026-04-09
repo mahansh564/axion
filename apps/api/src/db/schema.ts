@@ -1,7 +1,15 @@
 import { AnySQLiteColumn, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-/** Document kinds that hold user experience text for retrieval, stance aggregation, and curiosity. */
+/** Base kinds used by synthesis/curiosity pipelines that operate on direct conversational narrative text. */
 export const EXPERIENCE_TEXT_DOCUMENT_KINDS = ["transcript", "conversation_log"] as const;
+
+/** Retrieval accepts additional structured experience documents ranked with metadata weighting. */
+export const EXPERIENCE_RETRIEVAL_DOCUMENT_KINDS = [
+  ...EXPERIENCE_TEXT_DOCUMENT_KINDS,
+  "highlight_annotation",
+  "social_log",
+  "reflection_log",
+] as const;
 
 /** `voice` = audio blob + transcribe; `conversation` / `manual_log` = text body only (no audio). */
 export const experienceRecords = sqliteTable("experience_records", {

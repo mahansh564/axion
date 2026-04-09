@@ -1,7 +1,13 @@
 import { and, inArray, or, sql } from "drizzle-orm";
 
 import { db } from "./db/client.js";
-import { documents, graphEdges, graphNodes, researchArtifacts } from "./db/schema.js";
+import {
+  documents,
+  EXPERIENCE_RETRIEVAL_DOCUMENT_KINDS,
+  graphEdges,
+  graphNodes,
+  researchArtifacts,
+} from "./db/schema.js";
 
 const STOP = new Set([
   "what",
@@ -43,25 +49,69 @@ function scoreBody(body: string, tokens: string[]): number {
   return tokens.reduce((n, t) => n + (lower.includes(t) ? 1 : 0), 0);
 }
 
+function parseMetadata(value: string | null): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function clampUnit(value: unknown, fallback = 0): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.min(1, value));
+}
+
+function experienceBoost(kind: string, metadataJson: string | null): number {
+  const metadata = parseMetadata(metadataJson);
+  const matteredScore = clampUnit(metadata.mattered_score, 0);
+  const credibility = clampUnit(metadata.credibility, 0);
+  const matteredBoost = matteredScore * 1.5;
+  const credibilityBoost = credibility * 1.25;
+  if (kind === "highlight_annotation") return matteredBoost + credibilityBoost + 0.25;
+  if (kind === "reflection_log") return matteredBoost + credibilityBoost + 0.1;
+  return matteredBoost + credibilityBoost;
+}
+
 export async function findDocumentsForQuestion(question: string): Promise<
   Array<{ id: string; body: string; score: number }>
 > {
   const tokens = questionKeywords(question);
   if (tokens.length === 0) {
-    const rows = await db.select({ id: documents.id, body: documents.body }).from(documents).limit(20);
-    return rows.map((r) => ({ ...r, score: 0 }));
+    const rows = await db
+      .select({ id: documents.id, body: documents.body, kind: documents.kind, metadata: documents.metadata })
+      .from(documents)
+      .where(inArray(documents.kind, [...EXPERIENCE_RETRIEVAL_DOCUMENT_KINDS]))
+      .limit(20);
+    return rows.map((r) => ({
+      id: r.id,
+      body: r.body,
+      score: experienceBoost(r.kind, r.metadata),
+    }));
   }
 
   const conditions = tokens.map((t) => sql`lower(${documents.body}) like ${"%" + t + "%"}`);
   const rows = await db
-    .select({ id: documents.id, body: documents.body })
+    .select({ id: documents.id, body: documents.body, kind: documents.kind, metadata: documents.metadata })
     .from(documents)
-    .where(or(...conditions))
+    .where(and(inArray(documents.kind, [...EXPERIENCE_RETRIEVAL_DOCUMENT_KINDS]), or(...conditions)))
     .limit(100);
 
   return rows
-    .map((r) => ({ ...r, score: scoreBody(r.body, tokens) }))
-    .filter((r) => r.score > 0)
+    .map((r) => {
+      const lexicalScore = scoreBody(r.body, tokens);
+      if (lexicalScore <= 0) {
+        return null;
+      }
+      return {
+        id: r.id,
+        body: r.body,
+        score: lexicalScore + experienceBoost(r.kind, r.metadata),
+      };
+    })
+    .filter((r): r is { id: string; body: string; score: number } => r !== null)
     .sort((a, b) => b.score - a.score || b.body.length - a.body.length)
     .slice(0, 20);
 }
