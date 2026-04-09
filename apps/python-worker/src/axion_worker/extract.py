@@ -1,10 +1,38 @@
 import json
 import re
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import httpx
 
 from axion_worker.settings import settings
+
+EXTRACTION_SYSTEM_PROMPT = (
+    "Extract JSON only with keys model_id, entities[], relations[], emotion, uncertainty. "
+    "entities items: label, kind, span_start, span_end. "
+    "relations items: subject, predicate, object, confidence. "
+    "emotion: {label, intensity} or null. "
+    "uncertainty: {phrases: string[]} or null. "
+    "Use model_id literal axion-extract."
+)
+
+
+class ProviderConfigError(Exception):
+    pass
+
+
+class ProviderRuntimeError(Exception):
+    pass
+
+
+class ExtractionProvider(Protocol):
+    async def extract(self, *, document_id: str, text: str) -> dict[str, Any]: ...
+
+
+def _build_messages(document_id: str, text: str) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+        {"role": "user", "content": f"document_id={document_id}\n\n{text[:8000]}"},
+    ]
 
 
 def _stub_extraction(text: str) -> dict[str, Any]:
@@ -32,44 +60,80 @@ def _stub_extraction(text: str) -> dict[str, Any]:
     }
 
 
-async def extract_structured(*, document_id: str, text: str) -> dict[str, Any]:
-    base = settings.ollama_base_url.rstrip("/")
-    url = f"{base}/api/chat"
-    payload = {
-        "model": settings.ollama_model,
-        "stream": False,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "Extract JSON only with keys model_id, entities[], relations[], "
-                    "emotion, uncertainty. "
-                    "entities items: label, kind, span_start, span_end. "
-                    "relations items: subject, predicate, object, confidence. "
-                    "emotion: {label, intensity} or null. "
-                    "uncertainty: {phrases: string[]} or null. "
-                    "Use model_id literal axion-extract."
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"document_id={document_id}\n\n{text[:8000]}",
-            },
-        ],
-    }
-    try:
+class StubExtractionProvider:
+    async def extract(self, *, document_id: str, text: str) -> dict[str, Any]:
+        del document_id
+        return _normalize_extract(_stub_extraction(text))
+
+
+class OllamaExtractionProvider:
+    async def extract(self, *, document_id: str, text: str) -> dict[str, Any]:
+        base = settings.ollama_base_url.rstrip("/")
+        url = f"{base}/api/chat"
+        payload = {
+            "model": settings.ollama_model,
+            "stream": False,
+            "messages": _build_messages(document_id, text),
+        }
         async with httpx.AsyncClient(timeout=120.0) as client:
             r = await client.post(url, json=payload)
             r.raise_for_status()
             data = r.json()
             msg = data.get("message", {}).get("content", "")
             parsed = _parse_json_block(msg)
-            if parsed:
-                parsed.setdefault("model_id", settings.ollama_model)
-                return _normalize_extract(parsed)
-    except (httpx.HTTPError, json.JSONDecodeError, KeyError):
-        pass
-    return _normalize_extract(_stub_extraction(text))
+            if not parsed:
+                raise ValueError("ollama provider response missing parseable JSON payload")
+            parsed.setdefault("model_id", settings.ollama_model)
+            return _normalize_extract(parsed)
+
+
+class OpenAIExtractionProvider:
+    async def extract(self, *, document_id: str, text: str) -> dict[str, Any]:
+        if not settings.openai_api_key:
+            raise ProviderConfigError("openai provider requires OPENAI_API_KEY")
+        base = settings.openai_base_url.rstrip("/")
+        url = f"{base}/chat/completions"
+        payload = {
+            "model": settings.openai_model,
+            "temperature": 0,
+            "messages": _build_messages(document_id, text),
+            "response_format": {"type": "json_object"},
+        }
+        headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post(url, json=payload, headers=headers)
+            r.raise_for_status()
+            data = r.json()
+            msg = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            parsed = _parse_json_block(msg)
+            if not parsed:
+                raise ValueError("openai provider response missing parseable JSON payload")
+            parsed.setdefault("model_id", settings.openai_model)
+            return _normalize_extract(parsed)
+
+
+def _resolve_extraction_provider() -> ExtractionProvider:
+    provider = settings.llm_provider
+    if provider == "ollama":
+        return OllamaExtractionProvider()
+    if provider == "openai":
+        return OpenAIExtractionProvider()
+    if provider == "stub":
+        return StubExtractionProvider()
+    raise ValueError(f"unsupported llm provider: {settings.llm_provider}")
+
+
+async def extract_structured(*, document_id: str, text: str) -> dict[str, Any]:
+    provider_name = settings.llm_provider
+    provider = _resolve_extraction_provider()
+    try:
+        return await provider.extract(document_id=document_id, text=text)
+    except ProviderConfigError:
+        raise
+    except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        if provider_name == "ollama":
+            return _normalize_extract(_stub_extraction(text))
+        raise ProviderRuntimeError(f"{provider_name} extraction provider failed") from exc
 
 
 def _parse_json_block(content: str) -> dict[str, Any] | None:

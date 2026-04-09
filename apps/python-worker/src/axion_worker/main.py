@@ -6,7 +6,8 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from axion_worker.extract import extract_structured
+from axion_worker.extract import ProviderConfigError, ProviderRuntimeError, extract_structured
+from axion_worker.transcribe import ProviderConfigError as TranscribeProviderConfigError
 from axion_worker.transcribe import transcribe_audio
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -56,9 +57,17 @@ def transcribe(
         base64.b64decode(body.audio_base64, validate=True)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"invalid base64: {e}") from e
-    text, model_id, language = transcribe_audio(
-        audio_base64=body.audio_base64, mime_type=body.mime_type
-    )
+    try:
+        text, model_id, language = transcribe_audio(
+            audio_base64=body.audio_base64, mime_type=body.mime_type
+        )
+    except TranscribeProviderConfigError as e:
+        log.error(
+            '{"event":"transcribe_provider_config_error","trace_id":"%s","error":"%s"}',
+            trace,
+            str(e),
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
     log.info('{"event":"transcribe_done","trace_id":"%s","model_id":"%s"}', trace, model_id)
     return TranscribeOut(text=text, model_id=model_id, language=language)
 
@@ -69,6 +78,21 @@ async def extract(body: ExtractBody, x_trace_id: str | None = Header(default=Non
     log.info(
         '{"event":"extract_start","trace_id":"%s","document_id":"%s"}', trace, body.document_id
     )
-    data = await extract_structured(document_id=body.document_id, text=body.text)
+    try:
+        data = await extract_structured(document_id=body.document_id, text=body.text)
+    except ProviderConfigError as e:
+        log.error(
+            '{"event":"extract_provider_config_error","trace_id":"%s","error":"%s"}',
+            trace,
+            str(e),
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    except ProviderRuntimeError as e:
+        log.error(
+            '{"event":"extract_provider_runtime_error","trace_id":"%s","error":"%s"}',
+            trace,
+            str(e),
+        )
+        raise HTTPException(status_code=503, detail=str(e)) from e
     log.info('{"event":"extract_done","trace_id":"%s"}', trace)
     return ExtractOut(**data)
