@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 3 * * *"
 
 jobs:
   build:
@@ -31,3 +33,17 @@ jobs:
         env:
           AXION_TRANSCRIBE_STUB: "1"
         run: pnpm turbo run lint typecheck test build --concurrency=1
+
+      - name: Golden dataset eval
+        env:
+          AXION_TRANSCRIBE_STUB: "1"
+          DATABASE_URL: ${{ github.workspace }}/apps/api/data/eval.db
+          EVAL_PASS_THRESHOLD: "0.90"
+        run: pnpm --filter @axion/api eval:run
+
+      - name: Upload eval reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-reports
+          path: apps/api/data/eval/*.json

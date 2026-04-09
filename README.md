@@ -52,6 +52,10 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
    - `GET /ready` — SQLite OK + worker `/health` reachable
    - `POST /experiences/voice` — multipart audio → transcript → graph + episodic events
    - `POST /experiences/conversation` — JSON body (`text`, optional `channel`: `conversation` \| `manual_log`, optional `title`) → stored log → same extraction + graph path as voice (no audio)
+   - `POST /experiences/highlights` — JSON body (`highlight`, optional `annotation`, optional `source_kind`, optional `source_ref`, optional `mattered_score`) → highlight/annotation ingestion with mattered weighting metadata
+   - `POST /experiences/social` — JSON body (`text`, `person`, optional `relationship`, optional `credibility`) → trusted social log + credibility-linked person edges
+   - `GET /reflections/prompts` — Stage 6 daily reflection prompts for structured capture
+   - `POST /experiences/reflections` — JSON body (`prompt`, `response`, optional `mood`, optional `mattered_score`) → structured reflection ingestion
    - `POST /research/runs` — create a queued research task/run for manual execution triggers
    - `POST /research/runs/:id/execute` — execute a queued research run through plan/search/fetch steps
    - `GET /runs/:id/replay` — inspect stored run/task/step/artifact/event state for a research run
@@ -105,6 +109,24 @@ pnpm turbo run lint typecheck test build
 ```
 
 See [.github/workflows/ci.yml](.github/workflows/ci.yml).
+
+## Golden Eval Dataset (Stage 6)
+
+Stage 6 includes a deterministic golden Q&A dataset (50 cases) and an automated eval runner for regression tracking.
+
+From `apps/api`:
+
+```bash
+pnpm eval:seed   # sync dataset into evaluation_golden_cases
+pnpm eval:run    # seed deterministic eval fixtures, run /qa cases, persist evaluation_runs + report JSON
+pnpm eval:trend  # write latest trend snapshot from evaluation_runs
+```
+
+Reports are written under `DATA_DIR/eval/`:
+- `latest-report.json`
+- `trend.json`
+
+CI runs `pnpm --filter @axion/api eval:run` on pull requests and nightly schedule, then uploads reports as workflow artifacts.
 
 ## Demo script
 

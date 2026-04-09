@@ -337,11 +337,11 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 ### Stage 6 — Breadth + evaluation
 
 - [x] Conversation / manual log ingestion path
-- [ ] Highlights & annotations pipeline + “mattered” weighting
-- [ ] Social / trusted-person nodes + credibility on edges
-- [ ] Daily reflection prompts + structured storage
-- [ ] Golden dataset (50–100 Q&A)
-- [ ] Automated eval (PR or nightly) + trend tracking
+- [x] Highlights & annotations pipeline + “mattered” weighting
+- [x] Social / trusted-person nodes + credibility on edges
+- [x] Daily reflection prompts + structured storage
+- [x] Golden dataset (50–100 Q&A)
+- [x] Automated eval (PR or nightly) + trend tracking
 
 ### Cross-cutting (ongoing)
 

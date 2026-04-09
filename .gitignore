@@ -8,6 +8,7 @@ apps/python-worker/dist
 *.db
 *.db-journal
 /data
+apps/api/data/
 .DS_Store
 coverage
 .venv
