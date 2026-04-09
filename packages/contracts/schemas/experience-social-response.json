@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/experience-social-response.json",
+  "title": "ExperienceSocialResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["experienceId", "documentId", "person", "credibility"],
+  "properties": {
+    "experienceId": { "type": "string", "minLength": 1 },
+    "documentId": { "type": "string", "minLength": 1 },
+    "person": { "type": "string", "minLength": 1 },
+    "credibility": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

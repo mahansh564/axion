@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/experience-highlight-request.json",
+  "title": "ExperienceHighlightRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["highlight"],
+  "properties": {
+    "highlight": { "type": "string", "minLength": 1 },
+    "annotation": { "type": "string" },
+    "title": { "type": "string" },
+    "source_kind": {
+      "type": "string",
+      "enum": ["book", "pdf", "article", "web", "note", "other"],
+      "default": "other"
+    },
+    "source_ref": { "type": "string" },
+    "mattered_score": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

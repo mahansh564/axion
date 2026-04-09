@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/experience-reflection-request.json",
+  "title": "ExperienceReflectionRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt", "response"],
+  "properties": {
+    "prompt": { "type": "string", "minLength": 1 },
+    "response": { "type": "string", "minLength": 1 },
+    "mood": { "type": "string" },
+    "title": { "type": "string" },
+    "mattered_score": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

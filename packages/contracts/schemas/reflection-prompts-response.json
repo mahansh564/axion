@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/reflection-prompts-response.json",
+  "title": "ReflectionPromptsResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["generated_at", "prompts"],
+  "properties": {
+    "generated_at": { "type": "number" },
+    "prompts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "prompt"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "prompt": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}
