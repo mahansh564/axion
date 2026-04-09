@@ -19,7 +19,7 @@ describe("axion api integration", () => {
 
     vi.stubGlobal(
       "fetch",
-      async (input: Parameters<typeof fetch>[0]): Promise<Response> => {
+      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> => {
         const u = String(input);
         if (u.endsWith("/health")) {
           return new Response(JSON.stringify({ status: "ok" }), {
@@ -38,6 +38,33 @@ describe("axion api integration", () => {
           );
         }
         if (u.includes("/extract")) {
+          const payload =
+            typeof init?.body === "string"
+              ? (JSON.parse(init.body) as { text?: string })
+              : ({ text: "" } as { text?: string });
+          const extractText = (payload.text ?? "").toLowerCase();
+          if (extractText.includes("dr rivera")) {
+            return new Response(
+              JSON.stringify({
+                model_id: "stub-extract",
+                entities: [
+                  { label: "Dr Rivera", span_start: null, span_end: null },
+                  { label: "metabolic endpoints", kind: "entity", span_start: null, span_end: null },
+                ],
+                relations: [
+                  {
+                    subject: "Dr Rivera",
+                    predicate: "mentioned_with",
+                    object: "metabolic endpoints",
+                    confidence: 0.65,
+                  },
+                ],
+                emotion: null,
+                uncertainty: null,
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
           return new Response(
             JSON.stringify({
               model_id: "stub-extract",
@@ -195,6 +222,211 @@ describe("axion api integration", () => {
       headers: { "content-type": "application/json" },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("ingests highlights with mattered weighting and prioritizes them in experience retrieval", async () => {
+    const token = `stage6-highlight-${randomUUID().slice(0, 8)}`;
+    const sharedText = `${token} protocol insight`;
+
+    const conversationRes = await app.inject({
+      method: "POST",
+      url: "/experiences/conversation",
+      payload: { text: sharedText, channel: "manual_log", title: "Baseline mention" },
+      headers: { "content-type": "application/json" },
+    });
+    expect(conversationRes.statusCode).toBe(201);
+    const conversationBody = JSON.parse(conversationRes.body) as { documentId: string };
+
+    const highlightRes = await app.inject({
+      method: "POST",
+      url: "/experiences/highlights",
+      payload: {
+        highlight: sharedText,
+        annotation: "This was the core takeaway from the article.",
+        source_kind: "article",
+        source_ref: "https://example.com/insight",
+        mattered_score: 0.95,
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(highlightRes.statusCode).toBe(201);
+    const highlightBody = JSON.parse(highlightRes.body) as { documentId: string; mattered_score: number };
+    expect(highlightBody.mattered_score).toBe(0.95);
+
+    const qa = await app.inject({
+      method: "POST",
+      url: "/qa",
+      payload: { question: `What mattered about ${token}?` },
+      headers: { "content-type": "application/json" },
+    });
+    expect(qa.statusCode).toBe(200);
+    const qaBody = JSON.parse(qa.body) as {
+      citations: Array<{ source_type: string; document_id: string | null }>;
+      answer: string;
+    };
+    const experienceCitations = qaBody.citations.filter((citation) => citation.source_type === "experience");
+    expect(experienceCitations[0]?.document_id).toBe(highlightBody.documentId);
+    expect(experienceCitations.some((citation) => citation.document_id === conversationBody.documentId)).toBe(true);
+    expect(qaBody.answer.toLowerCase()).toContain(token.toLowerCase());
+  });
+
+  it("rejects invalid highlight mattered score", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/experiences/highlights",
+      payload: {
+        highlight: "Meaningful excerpt",
+        mattered_score: 2,
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("ingests social logs and stores trusted-person credibility edges", async () => {
+    const person = "Dr Rivera";
+    const res = await app.inject({
+      method: "POST",
+      url: "/experiences/social",
+      payload: {
+        text: "Dr Rivera challenged my assumptions about metabolic endpoints.",
+        person: `  ${person}  `,
+        relationship: "mentor",
+        credibility: 0.9,
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body) as { documentId: string; credibility: number; person: string };
+    expect(body.credibility).toBe(0.9);
+    expect(body.person).toBe(person);
+
+    const { db } = await import("./db/client.js");
+    const { graphEdges, graphNodes } = await import("./db/schema.js");
+    const nodes = await db.select().from(graphNodes).where(eq(graphNodes.documentId, body.documentId)).all();
+    const personNodes = nodes.filter((node) => node.kind === "person" && node.label === person);
+    expect(personNodes.length).toBe(1);
+    expect(nodes.some((node) => node.label === person && node.kind !== "person")).toBe(false);
+    const personNode = personNodes[0];
+    if (!personNode?.id) {
+      throw new Error("expected trusted person node");
+    }
+    const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
+
+    const edges = await db.select().from(graphEdges).where(eq(graphEdges.documentId, body.documentId)).all();
+    const trustEdges = edges.filter(
+      (edge) => edge.srcId === personNode.id && edge.predicate === "trusted_source_mentions",
+    );
+    expect(trustEdges.length).toBeGreaterThan(0);
+    for (const edge of trustEdges) {
+      expect(edge.confidence ?? 0).toBeCloseTo(0.9, 5);
+      const target = nodeById.get(edge.dstId);
+      expect(target?.label).not.toBe(person);
+    }
+  });
+
+  it("serves reflection prompts and stores structured reflection entries", async () => {
+    const promptsRes = await app.inject({
+      method: "GET",
+      url: "/reflections/prompts",
+    });
+    expect(promptsRes.statusCode).toBe(200);
+    const promptsBody = JSON.parse(promptsRes.body) as {
+      generated_at: number;
+      prompts: Array<{ id: string; prompt: string }>;
+    };
+    expect(typeof promptsBody.generated_at).toBe("number");
+    expect(promptsBody.prompts.length).toBeGreaterThanOrEqual(3);
+    expect(promptsBody.prompts.some((row) => row.id === "surprised")).toBe(true);
+
+    const token = `stage6-reflection-${randomUUID().slice(0, 8)}`;
+    const reflectionRes = await app.inject({
+      method: "POST",
+      url: "/experiences/reflections",
+      payload: {
+        prompt: "What surprised me today?",
+        response: `I noticed ${token} patterns in outcome reporting.`,
+        mood: "curious",
+        mattered_score: 0.8,
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(reflectionRes.statusCode).toBe(201);
+    const reflectionBody = JSON.parse(reflectionRes.body) as { documentId: string; mattered_score: number };
+    expect(reflectionBody.mattered_score).toBe(0.8);
+
+    const { db } = await import("./db/client.js");
+    const { documents } = await import("./db/schema.js");
+    const documentRow = await db.select().from(documents).where(eq(documents.id, reflectionBody.documentId)).get();
+    expect(documentRow?.kind).toBe("reflection_log");
+    const metadata = JSON.parse(documentRow?.metadata ?? "{}") as Record<string, unknown>;
+    expect(metadata.prompt).toBe("What surprised me today?");
+    expect(metadata.mood).toBe("curious");
+    expect(metadata.mattered_score).toBe(0.8);
+
+    const qa = await app.inject({
+      method: "POST",
+      url: "/qa",
+      payload: { question: `What did I reflect about ${token}?` },
+      headers: { "content-type": "application/json" },
+    });
+    expect(qa.statusCode).toBe(200);
+    const qaBody = JSON.parse(qa.body) as { citations: Array<{ document_id: string | null }> };
+    expect(qaBody.citations.some((citation) => citation.document_id === reflectionBody.documentId)).toBe(true);
+  });
+
+  it("does not aggregate stance beliefs from reflection documents", async () => {
+    const token = `stage6stance${randomUUID().slice(0, 8)}`;
+    const reflectionRes = await app.inject({
+      method: "POST",
+      url: "/experiences/reflections",
+      payload: {
+        prompt: `What do I think about ${token}?`,
+        response: `I think ${token} is overhyped right now.`,
+        mood: "skeptical",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(reflectionRes.statusCode).toBe(201);
+
+    const aggregateRes = await app.inject({
+      method: "POST",
+      url: "/beliefs/aggregate-stances",
+      payload: { topic: token },
+      headers: { "content-type": "application/json" },
+    });
+    expect(aggregateRes.statusCode).toBe(201);
+    const aggregateBody = JSON.parse(aggregateRes.body) as { created_count: number };
+    expect(aggregateBody.created_count).toBe(0);
+  });
+
+  it("does not generate confusion suggestions from reflection documents", async () => {
+    const token = `stage6curiosity${randomUUID().slice(0, 8)}`;
+    const reflectionRes = await app.inject({
+      method: "POST",
+      url: "/experiences/reflections",
+      payload: {
+        prompt: `Where am I uncertain about ${token}?`,
+        response: `I am not sure about ${token}. I wonder whether ${token} has enough evidence yet.`,
+        mood: "uncertain",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(reflectionRes.statusCode).toBe(201);
+    const reflectionBody = JSON.parse(reflectionRes.body) as { documentId: string };
+
+    const curiosityRes = await app.inject({
+      method: "GET",
+      url: "/curiosity/suggestions?limit=25&min_score=0",
+    });
+    expect(curiosityRes.statusCode).toBe(200);
+    const curiosityBody = JSON.parse(curiosityRes.body) as {
+      suggestions: Array<{ evidence?: { document_ids?: string[] } }>;
+    };
+    const referencesReflectionDoc = curiosityBody.suggestions.some((suggestion) =>
+      (suggestion.evidence?.document_ids ?? []).includes(reflectionBody.documentId),
+    );
+    expect(referencesReflectionDoc).toBe(false);
   });
 
   it("creates a queued research task and run", async () => {
