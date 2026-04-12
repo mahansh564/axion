@@ -1,4 +1,5 @@
-import { AnySQLiteColumn, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { AnySQLiteColumn, check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /** Base kinds used by synthesis/curiosity pipelines that operate on direct conversational narrative text. */
 export const EXPERIENCE_TEXT_DOCUMENT_KINDS = ["transcript", "conversation_log"] as const;
@@ -295,6 +296,10 @@ export const biometricResearchProposals = sqliteTable(
   (t) => [
     index("biometric_research_proposals_status_idx").on(t.status),
     index("biometric_research_proposals_updated_idx").on(t.updatedAt),
+    check(
+      "biometric_research_proposals_status_chk",
+      sql`${t.status} in ('draft', 'submitted', 'approved', 'rejected')`,
+    ),
   ],
 );
 
@@ -315,6 +320,8 @@ export const biometricReviewDecisions = sqliteTable(
     index("biometric_review_decisions_proposal_idx").on(t.proposalId),
     index("biometric_review_decisions_review_type_idx").on(t.reviewType),
     uniqueIndex("biometric_review_decisions_proposal_review_type_uidx").on(t.proposalId, t.reviewType),
+    check("biometric_review_decisions_review_type_chk", sql`${t.reviewType} in ('ethics', 'legal')`),
+    check("biometric_review_decisions_decision_chk", sql`${t.decision} in ('approved', 'rejected')`),
   ],
 );
 

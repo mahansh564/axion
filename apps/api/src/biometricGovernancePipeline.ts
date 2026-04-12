@@ -19,7 +19,7 @@ function asProposalStatus(value: string): ProposalStatus {
   if (value === "draft" || value === "submitted" || value === "approved" || value === "rejected") {
     return value;
   }
-  return "draft";
+  throw new Error(`invalid proposal status in storage: ${value}`);
 }
 
 function asReviewType(value: string): ReviewType {
@@ -242,15 +242,13 @@ export async function addBiometricGovernanceReview(input: {
     }
   }
 
-  if (proposal.status !== nextStatus) {
-    await db
-      .update(biometricResearchProposals)
-      .set({
-        status: nextStatus,
-        updatedAt: now(),
-      })
-      .where(eq(biometricResearchProposals.id, proposalId));
-  }
+  await db
+    .update(biometricResearchProposals)
+    .set({
+      status: nextStatus,
+      updatedAt: now(),
+    })
+    .where(eq(biometricResearchProposals.id, proposalId));
 
   const updated = await getBiometricGovernanceProposalById(proposalId);
   if (!updated) throw new Error("proposal not found");
