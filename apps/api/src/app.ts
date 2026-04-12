@@ -6,7 +6,7 @@ import Fastify, { type FastifyRequest } from "fastify";
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "./db/client.js";
-import { documents, experienceRecords } from "./db/schema.js";
+import { documents, episodicEvents, experienceRecords } from "./db/schema.js";
 import {
   listContradictionCandidates,
   listContradictionResolutions,
@@ -24,6 +24,7 @@ import {
   runAudioRetentionPolicy,
 } from "./experiencePipeline.js";
 import { withTrace } from "./log.js";
+import { scanUploadBuffer } from "./malwareScanner.js";
 import { listModelUsageMetrics } from "./modelUsage.js";
 import { getObserverNotesForRun, reviewPromotion } from "./observerPipeline.js";
 import {
@@ -404,6 +405,64 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     }
     const buffer = Buffer.concat(chunks);
     const mimeType = mp.mimetype || "application/octet-stream";
+
+    const scanResult = await scanUploadBuffer({ buffer });
+    async function recordScanEvent(eventType: "malware_scan_clean" | "malware_scan_blocked" | "malware_scan_error"): Promise<void> {
+      try {
+        await db.insert(episodicEvents).values({
+          id: randomUUID(),
+          eventType,
+          traceId,
+          payload: JSON.stringify({
+            scanner_bin: scanResult.scannerBin,
+            duration_ms: scanResult.durationMs,
+            mime_type: mimeType,
+            bytes: buffer.length,
+            ...(scanResult.status === "infected" ? { signature: scanResult.signature } : {}),
+            ...(scanResult.status === "error" ? { reason: scanResult.reason } : {}),
+            detail: "detail" in scanResult ? scanResult.detail : null,
+          }),
+          createdAt: Date.now(),
+        });
+      } catch (eventError) {
+        log.error({ event: "malware_scan_audit_event_failed", err: String(eventError) });
+      }
+    }
+
+    if (scanResult.status === "infected") {
+      await recordScanEvent("malware_scan_blocked");
+      log.warn({
+        event: "voice_upload_blocked_malware_detected",
+        scanner_bin: scanResult.scannerBin,
+        duration_ms: scanResult.durationMs,
+        signature: scanResult.signature,
+      });
+      await reply.status(422).send({ error: "malware_detected" });
+      return;
+    }
+
+    if (scanResult.status === "error") {
+      await recordScanEvent("malware_scan_error");
+      log.error({
+        event: "voice_upload_malware_scan_failed",
+        scanner_bin: scanResult.scannerBin,
+        duration_ms: scanResult.durationMs,
+        reason: scanResult.reason,
+        detail: scanResult.detail,
+      });
+      await reply.status(503).send({ error: "malware_scan_failed" });
+      return;
+    }
+
+    if (scanResult.status === "clean") {
+      await recordScanEvent("malware_scan_clean");
+      log.info({
+        event: "voice_upload_malware_scan_clean",
+        scanner_bin: scanResult.scannerBin,
+        duration_ms: scanResult.durationMs,
+      });
+    }
+
     try {
       const out = await ingestVoiceNote({ buffer, mimeType, traceId });
       log.info({ event: "voice_ingest_ok", ...out });
