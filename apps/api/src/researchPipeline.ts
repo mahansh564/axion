@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 
 import { asc, eq } from "drizzle-orm";
 
@@ -80,9 +81,8 @@ function deriveSubquestions(goal: string, notes?: string): string[] {
   return [...new Set(base.map(collapseWhitespace))];
 }
 
-function pickRelevantSentences(text: string, focus: string): string[] {
+function pickRelevantSentences(sentences: string[], focus: string): string[] {
   const keywords = questionKeywords(focus);
-  const sentences = splitSentences(text);
   if (sentences.length === 0) return [];
 
   const scored = sentences
@@ -96,6 +96,68 @@ function pickRelevantSentences(text: string, focus: string): string[] {
   const winners = scored.filter((item) => item.score > 0).slice(0, 2).map((item) => item.sentence);
   if (winners.length > 0) return winners;
   return sentences.slice(0, 1);
+}
+
+function isPrivateIpv4(host: string): boolean {
+  const parts = host.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+  if (parts[0] === 10) return true;
+  if (parts[0] === 127) return true;
+  if (parts[0] === 169 && parts[1] === 254) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 0) return true;
+  return false;
+}
+
+function isPrivateIpv6(host: string): boolean {
+  const lower = host.toLowerCase();
+  if (lower === "::1" || lower === "::") return true;
+  if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) {
+    return true;
+  }
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+  if (lower.startsWith("::ffff:")) {
+    const mapped = lower.slice("::ffff:".length);
+    if (isIP(mapped) === 4) return isPrivateIpv4(mapped);
+  }
+  return false;
+}
+
+function validateResearchFetchUrl(rawUrl: string): { ok: true } | { ok: false; reason: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, reason: "invalid_url" };
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { ok: false, reason: "unsupported_scheme" };
+  }
+  const host = parsed.hostname.trim().toLowerCase();
+  if (!host) return { ok: false, reason: "missing_host" };
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) {
+    return { ok: false, reason: "local_hostname" };
+  }
+
+  const ipType = isIP(host);
+  if (ipType === 4 && isPrivateIpv4(host)) return { ok: false, reason: "private_ipv4" };
+  if (ipType === 6 && isPrivateIpv6(host)) return { ok: false, reason: "private_ipv6" };
+  return { ok: true };
+}
+
+const PROMPT_INJECTION_PATTERNS: Array<{ reason: string; re: RegExp }> = [
+  { reason: "instruction_override", re: /\b(ignore|disregard)\b[\s\S]{0,80}\b(previous|prior)\b[\s\S]{0,80}\binstructions?\b/i },
+  { reason: "prompt_exfiltration", re: /\b(reveal|leak|show|print|expose)\b[\s\S]{0,80}\b(system|developer|prompt|secret|token|key)\b/i },
+  { reason: "role_manipulation", re: /\b(you are|act as|pretend to be)\b[\s\S]{0,80}\b(system|developer|assistant|chatgpt)\b/i },
+  { reason: "policy_bypass", re: /\b(bypass|override|disable)\b[\s\S]{0,80}\b(safety|guardrails?|polic(y|ies)|restrictions?)\b/i },
+];
+
+function promptInjectionReasons(sentence: string): string[] {
+  return PROMPT_INJECTION_PATTERNS.filter((pattern) => pattern.re.test(sentence)).map((pattern) => pattern.reason);
 }
 
 type SearchResult = {
@@ -793,6 +855,35 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
         }
       }
 
+      let fetchTargets = results.slice(0, 2);
+      if (typeof remainingFetchBudget === "number") {
+        const allowedFetches = Math.min(remainingFetchBudget, fetchTargets.length);
+        fetchTargets = fetchTargets.slice(0, allowedFetches);
+        remainingFetchBudget -= allowedFetches;
+      }
+      const blockedUrls: Array<{ url: string; reason: string }> = [];
+      const safeFetchTargets: SearchResult[] = [];
+      for (const result of fetchTargets) {
+        const safeUrl = validateResearchFetchUrl(result.url);
+        if (safeUrl.ok) {
+          safeFetchTargets.push(result);
+          continue;
+        }
+        blockedUrls.push({ url: result.url, reason: safeUrl.reason });
+        await writeEvent({
+          traceId,
+          eventType: "research_untrusted_url_blocked",
+          payload: {
+            ...createEnvelope(runId, searchStep.id, planStep.id, searchArtifactRefs),
+            task_id: task.id,
+            trigger_mode: run.triggerMode,
+            question,
+            url: result.url,
+            reason: safeUrl.reason,
+          },
+        });
+      }
+
       await finishExecutionStep({
         stepId: searchStep.id,
         status: "completed",
@@ -800,16 +891,13 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
           query: question,
           result_count: results.length,
           urls: results.map((result) => result.url),
+          fetch_target_count: safeFetchTargets.length,
+          blocked_untrusted_count: blockedUrls.length,
+          blocked_untrusted_urls: blockedUrls,
         },
       });
 
-      let fetchTargets = results.slice(0, 2);
-      if (typeof remainingFetchBudget === "number") {
-        const allowedFetches = Math.min(remainingFetchBudget, fetchTargets.length);
-        fetchTargets = fetchTargets.slice(0, allowedFetches);
-        remainingFetchBudget -= allowedFetches;
-      }
-      for (const result of fetchTargets) {
+      for (const result of safeFetchTargets) {
         if (runtimeExceeded()) {
           await maybeMarkBudgetStop("max_runtime_ms", { max_runtime_ms: runtimeLimitMs });
           break;
@@ -844,7 +932,54 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
           continue;
         }
 
-        const excerpts = pickRelevantSentences(fetched.text, question);
+        const sentenceCandidates = splitSentences(fetched.text);
+        const classifiedSentences = sentenceCandidates.map((sentence) => ({
+          sentence,
+          reasons: promptInjectionReasons(sentence),
+        }));
+        const flaggedSentences = classifiedSentences.filter((entry) => entry.reasons.length > 0);
+        const flaggedReasons = [...new Set(flaggedSentences.flatMap((entry) => entry.reasons))];
+        const safeSentences = classifiedSentences
+          .filter((entry) => entry.reasons.length === 0)
+          .map((entry) => entry.sentence);
+        if (flaggedSentences.length > 0) {
+          await writeEvent({
+            traceId,
+            eventType: "research_prompt_injection_filtered",
+            payload: {
+              ...createEnvelope(runId, fetchStep.id, searchStep.id, []),
+              task_id: task.id,
+              question,
+              url: fetched.url,
+              total_sentence_count: sentenceCandidates.length,
+              filtered_sentence_count: flaggedSentences.length,
+              reasons: flaggedReasons,
+              fully_flagged: safeSentences.length === 0,
+            },
+          });
+        }
+        if (safeSentences.length === 0) {
+          await finishExecutionStep({
+            stepId: fetchStep.id,
+            status: "completed",
+            output: {
+              url: fetched.url,
+              title: fetched.title,
+              excerpt_count: 0,
+              artifact_refs: [],
+              prompt_injection: {
+                filtered_sentence_count: flaggedSentences.length,
+                total_sentence_count: sentenceCandidates.length,
+                reasons: flaggedReasons,
+                fully_flagged: true,
+                skipped_claims: true,
+              },
+            },
+          });
+          continue;
+        }
+
+        const excerpts = pickRelevantSentences(safeSentences, question);
         const localArtifactRefs: string[] = [];
         for (const excerpt of excerpts) {
           if (runtimeExceeded()) {
@@ -900,6 +1035,15 @@ export async function executeResearchRun(runId: string, traceId: string): Promis
             title: fetched.title,
             excerpt_count: excerpts.length,
             artifact_refs: localArtifactRefs,
+            prompt_injection:
+              flaggedSentences.length > 0
+                ? {
+                    filtered_sentence_count: flaggedSentences.length,
+                    total_sentence_count: sentenceCandidates.length,
+                    reasons: flaggedReasons,
+                    fully_flagged: false,
+                  }
+                : null,
           },
         });
 
