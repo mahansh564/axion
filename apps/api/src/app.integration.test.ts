@@ -17,6 +17,7 @@ const scopedEnvKeys = [
   "MALWARE_SCAN_ENABLED",
   "MALWARE_SCAN_BIN",
   "MALWARE_SCAN_TIMEOUT_MS",
+  "BIOMETRIC_RESEARCH_ENABLED",
 ] as const;
 
 type ScopedEnvKey = (typeof scopedEnvKeys)[number];
@@ -2660,6 +2661,280 @@ describe("axion api integration", () => {
     expect(allowedResult?.reason).toBeNull();
 
     await db.update(evaluationGoldenCases).set({ status: "inactive", updatedAt: Date.now() }).run();
+  });
+
+  it("supports biometric governance lifecycle transitions and disabled-by-default ingestion gating", async () => {
+    const baselineStatusRes = await app.inject({
+      method: "GET",
+      url: "/biometric/governance/status",
+    });
+    expect(baselineStatusRes.statusCode).toBe(200);
+    const baselineStatus = JSON.parse(baselineStatusRes.body) as {
+      biometric_research_enabled: boolean;
+      has_approved_proposal: boolean;
+      biometric_ingestion_allowed: boolean;
+    };
+    expect(baselineStatus.biometric_research_enabled).toBe(false);
+    expect(baselineStatus.has_approved_proposal).toBe(false);
+    expect(baselineStatus.biometric_ingestion_allowed).toBe(false);
+
+    const createDraft = await app.inject({
+      method: "POST",
+      url: "/biometric/governance/proposals",
+      payload: {
+        title: "Biometric pilot using resting heart-rate trends",
+        purpose: "Evaluate whether passive HR trends improve confidence calibration prompts",
+        requested_by: "research-team",
+        notes: "No ingestion in stage 7.1; governance only.",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(createDraft.statusCode).toBe(201);
+    const draftProposal = JSON.parse(createDraft.body) as {
+      id: string;
+      status: string;
+      reviews: unknown[];
+    };
+    expect(draftProposal.id).toBeTruthy();
+    expect(draftProposal.status).toBe("draft");
+    expect(draftProposal.reviews).toEqual([]);
+
+    const listRes = await app.inject({
+      method: "GET",
+      url: "/biometric/governance/proposals",
+    });
+    expect(listRes.statusCode).toBe(200);
+    const listed = JSON.parse(listRes.body) as {
+      proposals: Array<{ id: string; status: string }>;
+    };
+    expect(listed.proposals.some((proposal) => proposal.id === draftProposal.id && proposal.status === "draft")).toBe(true);
+
+    const getRes = await app.inject({
+      method: "GET",
+      url: `/biometric/governance/proposals/${draftProposal.id}`,
+    });
+    expect(getRes.statusCode).toBe(200);
+    const fetched = JSON.parse(getRes.body) as {
+      proposal: { id: string; status: string };
+    };
+    expect(fetched.proposal.id).toBe(draftProposal.id);
+    expect(fetched.proposal.status).toBe("draft");
+
+    const reviewWhileDraft = await app.inject({
+      method: "POST",
+      url: `/biometric/governance/proposals/${draftProposal.id}/reviews`,
+      payload: {
+        review_type: "ethics",
+        decision: "approved",
+        reviewer: "ethics-board",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(reviewWhileDraft.statusCode).toBe(409);
+
+    const submitRes = await app.inject({
+      method: "POST",
+      url: `/biometric/governance/proposals/${draftProposal.id}/submit`,
+    });
+    expect(submitRes.statusCode).toBe(200);
+    const submitted = JSON.parse(submitRes.body) as {
+      id: string;
+      status: string;
+    };
+    expect(submitted.id).toBe(draftProposal.id);
+    expect(submitted.status).toBe("submitted");
+
+    const submitAgain = await app.inject({
+      method: "POST",
+      url: `/biometric/governance/proposals/${draftProposal.id}/submit`,
+    });
+    expect(submitAgain.statusCode).toBe(409);
+
+    const ethicsApprove = await app.inject({
+      method: "POST",
+      url: `/biometric/governance/proposals/${draftProposal.id}/reviews`,
+      payload: {
+        review_type: "ethics",
+        decision: "approved",
+        reviewer: "ethics-board",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(ethicsApprove.statusCode).toBe(200);
+    const ethicsBody = JSON.parse(ethicsApprove.body) as {
+      status: string;
+      reviews: Array<{ review_type: string; decision: string }>;
+    };
+    expect(ethicsBody.status).toBe("submitted");
+    expect(
+      ethicsBody.reviews.some((review) => review.review_type === "ethics" && review.decision === "approved"),
+    ).toBe(true);
+
+    const legalApprove = await app.inject({
+      method: "POST",
+      url: `/biometric/governance/proposals/${draftProposal.id}/reviews`,
+      payload: {
+        review_type: "legal",
+        decision: "approved",
+        reviewer: "legal-counsel",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(legalApprove.statusCode).toBe(200);
+    const legalBody = JSON.parse(legalApprove.body) as { status: string };
+    expect(legalBody.status).toBe("approved");
+
+    const disabledFlagStatusRes = await app.inject({
+      method: "GET",
+      url: "/biometric/governance/status",
+    });
+    expect(disabledFlagStatusRes.statusCode).toBe(200);
+    const disabledFlagStatus = JSON.parse(disabledFlagStatusRes.body) as {
+      biometric_research_enabled: boolean;
+      has_approved_proposal: boolean;
+      biometric_ingestion_allowed: boolean;
+      approved_proposal_id: string | null;
+    };
+    expect(disabledFlagStatus.biometric_research_enabled).toBe(false);
+    expect(disabledFlagStatus.has_approved_proposal).toBe(true);
+    expect(disabledFlagStatus.biometric_ingestion_allowed).toBe(false);
+    expect(disabledFlagStatus.approved_proposal_id).toBe(draftProposal.id);
+
+    const createRejectedFlow = await app.inject({
+      method: "POST",
+      url: "/biometric/governance/proposals",
+      payload: {
+        title: "Rejected biometric pathway",
+        purpose: "Validate rejection path behavior",
+        requested_by: "qa-suite",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(createRejectedFlow.statusCode).toBe(201);
+    const rejectedDraft = JSON.parse(createRejectedFlow.body) as { id: string };
+
+    const rejectedSubmit = await app.inject({
+      method: "POST",
+      url: `/biometric/governance/proposals/${rejectedDraft.id}/submit`,
+    });
+    expect(rejectedSubmit.statusCode).toBe(200);
+
+    const rejectedReview = await app.inject({
+      method: "POST",
+      url: `/biometric/governance/proposals/${rejectedDraft.id}/reviews`,
+      payload: {
+        review_type: "ethics",
+        decision: "rejected",
+        reviewer: "ethics-board",
+        rationale: "Requires broader consent protocol",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(rejectedReview.statusCode).toBe(200);
+    const rejectedReviewBody = JSON.parse(rejectedReview.body) as { status: string };
+    expect(rejectedReviewBody.status).toBe("rejected");
+
+    const blockedAfterRejection = await app.inject({
+      method: "POST",
+      url: `/biometric/governance/proposals/${rejectedDraft.id}/reviews`,
+      payload: {
+        review_type: "legal",
+        decision: "approved",
+        reviewer: "legal-counsel",
+      },
+      headers: { "content-type": "application/json" },
+    });
+    expect(blockedAfterRejection.statusCode).toBe(409);
+  });
+
+  it("enables biometric ingestion only when feature flag and approved proposal are both present", async () => {
+    const envSnapshot = captureScopedEnv();
+    const biometricRoot = mkdtempSync(join(tmpdir(), "axion-api-biometric-"));
+    let biometricApp: Awaited<ReturnType<typeof import("./app.js").buildApp>> | undefined;
+    try {
+      process.env.DATA_DIR = biometricRoot;
+      process.env.DATABASE_URL = join(biometricRoot, "biometric.db");
+      process.env.PYTHON_WORKER_URL = "http://worker.test";
+      process.env.API_KEY = "";
+      process.env.BIOMETRIC_RESEARCH_ENABLED = "1";
+
+      vi.resetModules();
+      const { runMigrations } = await import("./db/client.js");
+      runMigrations();
+      const { buildApp } = await import("./app.js");
+      biometricApp = await buildApp();
+      await biometricApp.ready();
+
+      const baseline = await biometricApp.inject({
+        method: "GET",
+        url: "/biometric/governance/status",
+      });
+      expect(baseline.statusCode).toBe(200);
+      const baselineBody = JSON.parse(baseline.body) as {
+        biometric_research_enabled: boolean;
+        has_approved_proposal: boolean;
+        biometric_ingestion_allowed: boolean;
+      };
+      expect(baselineBody.biometric_research_enabled).toBe(true);
+      expect(baselineBody.has_approved_proposal).toBe(false);
+      expect(baselineBody.biometric_ingestion_allowed).toBe(false);
+
+      const create = await biometricApp.inject({
+        method: "POST",
+        url: "/biometric/governance/proposals",
+        payload: {
+          title: "Flag-enabled approval path",
+          purpose: "Verify ingestion gate opens only with approvals",
+          requested_by: "integration-suite",
+        },
+        headers: { "content-type": "application/json" },
+      });
+      expect(create.statusCode).toBe(201);
+      const created = JSON.parse(create.body) as { id: string };
+
+      const submit = await biometricApp.inject({
+        method: "POST",
+        url: `/biometric/governance/proposals/${created.id}/submit`,
+      });
+      expect(submit.statusCode).toBe(200);
+
+      const ethics = await biometricApp.inject({
+        method: "POST",
+        url: `/biometric/governance/proposals/${created.id}/reviews`,
+        payload: { review_type: "ethics", decision: "approved", reviewer: "ethics" },
+        headers: { "content-type": "application/json" },
+      });
+      expect(ethics.statusCode).toBe(200);
+
+      const legal = await biometricApp.inject({
+        method: "POST",
+        url: `/biometric/governance/proposals/${created.id}/reviews`,
+        payload: { review_type: "legal", decision: "approved", reviewer: "legal" },
+        headers: { "content-type": "application/json" },
+      });
+      expect(legal.statusCode).toBe(200);
+
+      const enabledStatus = await biometricApp.inject({
+        method: "GET",
+        url: "/biometric/governance/status",
+      });
+      expect(enabledStatus.statusCode).toBe(200);
+      const enabledBody = JSON.parse(enabledStatus.body) as {
+        biometric_research_enabled: boolean;
+        has_approved_proposal: boolean;
+        biometric_ingestion_allowed: boolean;
+        approved_proposal_id: string | null;
+      };
+      expect(enabledBody.biometric_research_enabled).toBe(true);
+      expect(enabledBody.has_approved_proposal).toBe(true);
+      expect(enabledBody.biometric_ingestion_allowed).toBe(true);
+      expect(enabledBody.approved_proposal_id).toBe(created.id);
+    } finally {
+      await biometricApp?.close();
+      rmSync(biometricRoot, { recursive: true, force: true });
+      restoreScopedEnv(envSnapshot);
+      vi.resetModules();
+    }
   });
 
   it("requires auth on data routes when API_KEY is enabled", async () => {
