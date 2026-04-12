@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/biometric-governance-proposals-response.json",
+  "title": "BiometricGovernanceProposalsResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["proposals"],
+  "properties": {
+    "proposals": {
+      "type": "array",
+      "items": {
+        "$ref": "https://axion.local/schemas/biometric-governance-proposal.json"
+      }
+    }
+  }
+}

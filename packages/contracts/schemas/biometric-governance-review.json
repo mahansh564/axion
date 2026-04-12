@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/biometric-governance-review.json",
+  "title": "BiometricGovernanceReview",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "proposal_id", "review_type", "decision", "reviewer", "rationale", "created_at"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "proposal_id": { "type": "string", "minLength": 1 },
+    "review_type": { "type": "string", "enum": ["ethics", "legal"] },
+    "decision": { "type": "string", "enum": ["approved", "rejected"] },
+    "reviewer": { "type": "string", "minLength": 1 },
+    "rationale": { "type": ["string", "null"] },
+    "created_at": { "type": "integer" }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axion.local/schemas/biometric-governance-status-response.json",
+  "title": "BiometricGovernanceStatusResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "biometric_research_enabled",
+    "has_approved_proposal",
+    "approved_proposal_id",
+    "biometric_ingestion_allowed",
+    "checked_at"
+  ],
+  "properties": {
+    "biometric_research_enabled": { "type": "boolean" },
+    "has_approved_proposal": { "type": "boolean" },
+    "approved_proposal_id": { "type": ["string", "null"] },
+    "biometric_ingestion_allowed": { "type": "boolean" },
+    "checked_at": { "type": "integer" }
+  }
+}
