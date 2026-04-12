@@ -210,7 +210,29 @@ Stages below map to these layers incrementally so each phase ships **usable soft
 
 ---
 
-## 12. Long-term vision (post–Stage 6)
+## 12. Stage 7 — Biometric governance scaffold (research track)
+
+**Goal**: Create explicit ethics/legal gating primitives for biometric exploration without enabling biometric ingestion in core product flows.
+
+**Scope**
+
+- Biometric research proposal records with lifecycle states: `draft`, `submitted`, `approved`, `rejected`.
+- Ethics/legal review decision records attached to submitted proposals.
+- API workflow for proposal creation, submission, and review decisions.
+- Governance status endpoint that reports whether biometric ingestion would be allowed.
+- Feature flag default-off behavior: approvals alone cannot enable ingestion.
+
+**Out of scope**
+
+- Any biometric capture or ingestion endpoint.
+- UI/admin surface for governance management.
+- Promotion of biometric data into canonical memory.
+
+**Exit criteria**: API governance workflow is tested end-to-end; ingestion remains disabled by default and only reports eligible when both flag + approvals are present.
+
+---
+
+## 13. Long-term vision (post–Stage 7)
 
 - Voice-first UX; optional on-device transcription and local models for privacy tiers.
 - Real-time augmentation (ambient capture with explicit consent model).
@@ -218,7 +240,7 @@ Stages below map to these layers incrementally so each phase ships **usable soft
 
 ---
 
-## 13. Cross-cutting concerns (all stages)
+## 14. Cross-cutting concerns (all stages)
 
 | Concern | Minimum approach |
 |---------|------------------|
@@ -230,7 +252,7 @@ Stages below map to these layers incrementally so each phase ships **usable soft
 
 ---
 
-## 14. Dependency overview
+## 15. Dependency overview
 
 ```mermaid
 flowchart TB
@@ -255,7 +277,7 @@ flowchart TB
 
 ---
 
-## 15. Risk register (from [plan.md](plan.md), made concrete)
+## 16. Risk register (from [plan.md](plan.md), made concrete)
 
 | Risk | Mitigation in design |
 |------|----------------------|
@@ -266,7 +288,7 @@ flowchart TB
 
 ---
 
-## 16. Document maintenance
+## 17. Document maintenance
 
 - **Product why**: update [plan.md](plan.md).
 - **Delivery how / when**: update this file when scope or ordering changes.
@@ -274,9 +296,9 @@ flowchart TB
 
 ---
 
-## 17. Master checklist
+## 18. Master checklist
 
-Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections 5–11 and 13.
+Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections 5–12 and 14.
 
 ### Stage 0 — Foundations
 
@@ -342,6 +364,12 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 - [x] Daily reflection prompts + structured storage
 - [x] Golden dataset (50–100 Q&A)
 - [x] Automated eval (PR or nightly) + trend tracking
+
+### Stage 7 — Biometric governance scaffold
+
+- [x] Governance-only biometric research scaffolding (proposal + ethics/legal review lifecycle)
+- [x] Feature-flagged status gating endpoint (`BIOMETRIC_RESEARCH_ENABLED` + approved proposal required)
+- [x] No biometric capture/ingestion endpoints in this stage
 
 ### Cross-cutting (ongoing)
 
