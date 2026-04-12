@@ -1328,6 +1328,44 @@ describe("axion api integration", () => {
     expect(questionUpdate.statusCode).toBe(200);
     expect(JSON.parse(questionUpdate.body).status).toBe("researching");
 
+    const openQuestionsFiltered = await app.inject({
+      method: "GET",
+      url: "/open-questions?status=researching&topic=rapamycin%20longevity",
+    });
+    expect(openQuestionsFiltered.statusCode).toBe(200);
+    const openQuestionsFilteredBody = JSON.parse(openQuestionsFiltered.body) as {
+      open_questions: Array<{ id: string; status: string; topic: string; linked_task_id: string | null }>;
+    };
+    expect(
+      openQuestionsFilteredBody.open_questions.some(
+        (questionRow) =>
+          questionRow.id === questionBody.id &&
+          questionRow.status === "researching" &&
+          questionRow.topic === "rapamycin longevity" &&
+          questionRow.linked_task_id === created.task_id,
+      ),
+    ).toBe(true);
+
+    const invalidStatusList = await app.inject({
+      method: "GET",
+      url: "/open-questions?status=pending-review",
+    });
+    expect(invalidStatusList.statusCode).toBe(400);
+
+    const invalidEmptyStatusList = await app.inject({
+      method: "GET",
+      url: "/open-questions?status=",
+    });
+    expect(invalidEmptyStatusList.statusCode).toBe(400);
+
+    const invalidEmptyStatusPatch = await app.inject({
+      method: "PATCH",
+      url: `/open-questions/${questionBody.id}`,
+      payload: { status: "" },
+      headers: { "content-type": "application/json" },
+    });
+    expect(invalidEmptyStatusPatch.statusCode).toBe(400);
+
     const uncertainty = await app.inject({
       method: "GET",
       url: "/beliefs/uncertainty",
