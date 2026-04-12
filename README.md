@@ -27,6 +27,10 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
 | `API_KEY` | If set, protects all routes except `GET /health` and `GET /ready` (`Authorization: Bearer <key>`) |
 | `WEB_APP_URL` | URL used by API compatibility redirects for visualization paths (`http://127.0.0.1:5173` default) |
 | `MAX_UPLOAD_BYTES` | Multipart upload cap |
+| `AUDIO_RETENTION_DAYS` | Voice-blob retention window in days (default `30`) |
+| `PRIVACY_ADMIN_API_KEY` | Required bearer token for `/privacy/audio-retention/run` (route disabled when unset) |
+| `AUDIO_RETENTION_CONFIRM_TOKEN` | Required non-placeholder confirmation token for destructive audio-blob cleanup runs |
+| `MODEL_PRICE_OVERRIDES_JSON` | Optional JSON price overrides for model usage estimates (`provider:model_id` → `prompt_per_1k_usd`, `completion_per_1k_usd`) |
 | `VITE_API_BASE_URL` | API base URL for `apps/web` (default `http://127.0.0.1:3000`) |
 | `AXION_TRANSCRIBE_STUB` | Set to `1` on the worker to skip faster-whisper (tests / CI) |
 
@@ -56,6 +60,8 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
    - `POST /experiences/social` — JSON body (`text`, `person`, optional `relationship`, optional `credibility`) → trusted social log + credibility-linked person edges
    - `GET /reflections/prompts` — Stage 6 daily reflection prompts for structured capture
    - `POST /experiences/reflections` — JSON body (`prompt`, `response`, optional `mood`, optional `mattered_score`) → structured reflection ingestion
+   - `POST /privacy/audio-retention/run` — enforce audio retention policy (`dry_run` defaults to true; destructive runs require `confirm_token`)
+   - `GET /metrics/model-usage` — aggregate `model_usage_recorded` episodic events with optional filters (`since_ms`, `until_ms`, `trace_id`, `operation`, `provider`, `model_id`)
    - `POST /research/runs` — create a queued research task/run for manual execution triggers
    - `POST /research/runs/:id/execute` — execute a queued research run through plan/search/fetch steps
    - `GET /runs/:id/replay` — inspect stored run/task/step/artifact/event state for a research run
@@ -77,6 +83,20 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
    - `POST /qa` — blended experience + research retrieval with source-labeled citations, confidence, and gaps
 
 Structured logs use `pino`; each response includes `x-trace-id`, propagated to the worker as `x-trace-id`.
+
+### Privacy note
+
+- Voice audio blobs are retained under `DATA_DIR/blobs` and can be cleaned with `POST /privacy/audio-retention/run`.
+- The route requires `Authorization: Bearer <PRIVACY_ADMIN_API_KEY>` and returns `503` when admin auth is not configured.
+- Cleanup defaults to dry-run. Destructive runs require `dry_run=false`, a non-placeholder `AUDIO_RETENTION_CONFIRM_TOKEN`, and matching `confirm_token`.
+- For non-single-machine deployments, add filesystem/database encryption-at-rest in your deployment layer.
+
+### Research safety + usage accounting notes
+
+- Research execution blocks non-public/untrusted fetch targets (for example `localhost`, private/link-local IPs, invalid schemes) and logs `research_untrusted_url_blocked` events.
+- Prompt-injection-like sentences in fetched web content are filtered before excerpt/claim persistence and logged as `research_prompt_injection_filtered`.
+- Model-call accounting is emitted as `model_usage_recorded` events with normalized token counts and estimated USD cost where pricing is known.
+- QA retrieval uses SQLite FTS5/BM25 indexes for experience documents and research artifacts, and automatically falls back to keyword matching if FTS is unavailable.
 
 3. **Web UI** — from repo root:
 

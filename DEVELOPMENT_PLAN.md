@@ -345,11 +345,11 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 
 ### Cross-cutting (ongoing)
 
-- [ ] Provider interfaces: transcription, LLM (local + optional cloud) — *partially* implicit via env + worker; formal interfaces TBD
+- [x] Provider interfaces: transcription, LLM (local + optional cloud) — worker now exposes explicit provider selection + guarded error semantics (`faster-whisper`/`stub`; `ollama`/`openai`/`stub`)
 - [x] Migrations/versioning for DB — **Drizzle** migrations; episodic JSON payloads versioned ad hoc in payloads
-- [ ] Privacy: retention policy for audio; optional encryption note for non–single-machine
-- [ ] Cost/token accounting in episodic or metrics
-- [ ] Stage 2+: prompt-injection / untrusted-web handling for research fetches
+- [x] Privacy: retention policy for audio; optional encryption note for non–single-machine
+- [x] Cost/token accounting in episodic or metrics
+- [x] Stage 2+: prompt-injection / untrusted-web handling for research fetches
 
 ---
 
