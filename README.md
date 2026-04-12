@@ -34,6 +34,7 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
 | `PRIVACY_ADMIN_API_KEY` | Required bearer token for `/privacy/audio-retention/run` (route disabled when unset) |
 | `AUDIO_RETENTION_CONFIRM_TOKEN` | Required non-placeholder confirmation token for destructive audio-blob cleanup runs |
 | `MODEL_PRICE_OVERRIDES_JSON` | Optional JSON price overrides for model usage estimates (`provider:model_id` → `prompt_per_1k_usd`, `completion_per_1k_usd`) |
+| `BIOMETRIC_RESEARCH_ENABLED` | Feature flag for biometric governance gating (`0`/`1`, default `0`) |
 | `VITE_API_BASE_URL` | API base URL for `apps/web` (default `http://127.0.0.1:3000`) |
 | `AXION_TRANSCRIBE_STUB` | Set to `1` on the worker to skip faster-whisper (tests / CI) |
 
@@ -64,6 +65,11 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
    - `GET /reflections/prompts` — Stage 6 daily reflection prompts for structured capture
    - `POST /experiences/reflections` — JSON body (`prompt`, `response`, optional `mood`, optional `mattered_score`) → structured reflection ingestion
    - `POST /privacy/audio-retention/run` — enforce audio retention policy (`dry_run` defaults to true; destructive runs require `confirm_token`)
+   - `POST /biometric/governance/proposals` — create a biometric research proposal (`draft`)
+   - `GET /biometric/governance/proposals` / `GET /biometric/governance/proposals/:id` — list/fetch proposal lifecycle + review decisions
+   - `POST /biometric/governance/proposals/:id/submit` — move proposal from `draft` to `submitted`
+   - `POST /biometric/governance/proposals/:id/reviews` — record `ethics`/`legal` review decisions on submitted proposals
+   - `GET /biometric/governance/status` — evaluate governance gate (`BIOMETRIC_RESEARCH_ENABLED` + approved proposal required)
    - `GET /metrics/model-usage` — aggregate `model_usage_recorded` episodic events with optional filters (`since_ms`, `until_ms`, `trace_id`, `operation`, `provider`, `model_id`)
    - `POST /research/runs` — create a queued research task/run for manual execution triggers
    - `POST /research/runs/:id/execute` — execute a queued research run through plan/search/fetch steps
@@ -93,6 +99,13 @@ Structured logs use `pino`; each response includes `x-trace-id`, propagated to t
 - The route requires `Authorization: Bearer <PRIVACY_ADMIN_API_KEY>` and returns `503` when admin auth is not configured.
 - Cleanup defaults to dry-run. Destructive runs require `dry_run=false`, a non-placeholder `AUDIO_RETENTION_CONFIRM_TOKEN`, and matching `confirm_token`.
 - For non-single-machine deployments, add filesystem/database encryption-at-rest in your deployment layer.
+
+### Biometric governance note
+
+- Stage 7.1 ships governance scaffolding only; biometric capture/ingestion endpoints are intentionally absent.
+- `GET /biometric/governance/status` reports `biometric_ingestion_allowed=true` only when both:
+  - `BIOMETRIC_RESEARCH_ENABLED=1`
+  - at least one proposal has reached `approved` (both ethics + legal approvals, with no rejection)
 
 ### Research safety + usage accounting notes
 
