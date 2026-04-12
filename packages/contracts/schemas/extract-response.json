@@ -45,6 +45,16 @@
       "properties": {
         "phrases": { "type": "array", "items": { "type": "string" } }
       }
+    },
+    "usage": {
+      "type": ["object", "null"],
+      "properties": {
+        "provider": { "type": ["string", "null"] },
+        "model_id": { "type": ["string", "null"] },
+        "prompt_tokens": { "type": ["integer", "null"] },
+        "completion_tokens": { "type": ["integer", "null"] },
+        "total_tokens": { "type": ["integer", "null"] }
+      }
     }
   }
 }

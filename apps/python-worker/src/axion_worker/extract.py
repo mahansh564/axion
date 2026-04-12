@@ -57,6 +57,13 @@ def _stub_extraction(text: str) -> dict[str, Any]:
         "relations": relations,
         "emotion": None,
         "uncertainty": {"phrases": uncertainty_phrases} if uncertainty_phrases else None,
+        "usage": {
+            "provider": "stub",
+            "model_id": "stub-rules",
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+        },
     }
 
 
@@ -84,6 +91,18 @@ class OllamaExtractionProvider:
             if not parsed:
                 raise ValueError("ollama provider response missing parseable JSON payload")
             parsed.setdefault("model_id", settings.ollama_model)
+            usage = {
+                "provider": "ollama",
+                "model_id": str(data.get("model", settings.ollama_model)),
+                "prompt_tokens": data.get("prompt_eval_count"),
+                "completion_tokens": data.get("eval_count"),
+                "total_tokens": None,
+            }
+            prompt = usage["prompt_tokens"]
+            completion = usage["completion_tokens"]
+            if isinstance(prompt, int) and isinstance(completion, int):
+                usage["total_tokens"] = prompt + completion
+            parsed["usage"] = usage
             return _normalize_extract(parsed)
 
 
@@ -109,6 +128,14 @@ class OpenAIExtractionProvider:
             if not parsed:
                 raise ValueError("openai provider response missing parseable JSON payload")
             parsed.setdefault("model_id", settings.openai_model)
+            usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+            parsed["usage"] = {
+                "provider": "openai",
+                "model_id": str(data.get("model", settings.openai_model)),
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+                "total_tokens": usage.get("total_tokens"),
+            }
             return _normalize_extract(parsed)
 
 
@@ -158,4 +185,46 @@ def _normalize_extract(raw: dict[str, Any]) -> dict[str, Any]:
         "relations": list(raw.get("relations") or []),
         "emotion": raw.get("emotion"),
         "uncertainty": raw.get("uncertainty"),
+        "usage": _normalize_usage(raw.get("usage")),
     }
+
+
+def _normalize_usage(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+
+    def _normalize_count(value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value if value >= 0 else None
+        if isinstance(value, float) and value.is_integer() and value >= 0:
+            return int(value)
+        return None
+
+    provider = raw.get("provider")
+    model_id = raw.get("model_id")
+    prompt_tokens = _normalize_count(raw.get("prompt_tokens"))
+    completion_tokens = _normalize_count(raw.get("completion_tokens"))
+    total_tokens = _normalize_count(raw.get("total_tokens"))
+    if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+
+    normalized = {
+        "provider": provider if isinstance(provider, str) and provider else None,
+        "model_id": model_id if isinstance(model_id, str) and model_id else None,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+    if (
+        normalized["provider"] is None
+        and normalized["model_id"] is None
+        and normalized["prompt_tokens"] is None
+        and normalized["completion_tokens"] is None
+        and normalized["total_tokens"] is None
+    ):
+        return None
+
+    return normalized

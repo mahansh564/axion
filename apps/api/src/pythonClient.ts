@@ -4,6 +4,13 @@ export type TranscribeResult = {
   text: string;
   model_id: string;
   language?: string | null;
+  usage?: {
+    provider?: string | null;
+    model_id?: string | null;
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+    total_tokens?: number | null;
+  } | null;
 };
 
 export type ExtractResult = {
@@ -22,6 +29,13 @@ export type ExtractResult = {
   }>;
   emotion?: Record<string, unknown> | null;
   uncertainty?: Record<string, unknown> | null;
+  usage?: {
+    provider?: string | null;
+    model_id?: string | null;
+    prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+    total_tokens?: number | null;
+  } | null;
 };
 
 async function workerFetch(path: string, init: RequestInit, traceId: string): Promise<Response> {

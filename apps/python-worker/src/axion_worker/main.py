@@ -40,6 +40,7 @@ class ExtractOut(BaseModel):
     relations: list[dict[str, Any]] = Field(default_factory=list)
     emotion: dict[str, Any] | None = None
     uncertainty: dict[str, Any] | None = None
+    usage: dict[str, Any] | None = None
 
 
 @app.get("/health")
