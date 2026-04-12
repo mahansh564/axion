@@ -350,6 +350,7 @@ Use `- [ ]` / `- [x]` in your editor to track progress. Wording mirrors sections
 - [x] Privacy: retention policy for audio; optional encryption note for non–single-machine
 - [x] Cost/token accounting in episodic or metrics
 - [x] Stage 2+: prompt-injection / untrusted-web handling for research fetches
+- [x] Upload malware scanning for voice ingestion (configurable scanner hook with fail-closed mode)
 
 ---
 
