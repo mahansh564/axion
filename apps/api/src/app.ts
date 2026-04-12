@@ -8,6 +8,14 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "./db/client.js";
 import { documents, episodicEvents, experienceRecords } from "./db/schema.js";
 import {
+  addBiometricGovernanceReview,
+  createBiometricGovernanceProposal,
+  getBiometricGovernanceProposalById,
+  getBiometricGovernanceStatus,
+  listBiometricGovernanceProposals,
+  submitBiometricGovernanceProposal,
+} from "./biometricGovernancePipeline.js";
+import {
   listContradictionCandidates,
   listContradictionResolutions,
   resolveContradiction,
@@ -664,6 +672,96 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
       force: typeof body.force === "boolean" ? body.force : false,
       scheduleId: typeof body.schedule_id === "string" ? body.schedule_id : undefined,
       attended: false,
+    });
+    await reply.send(payload);
+  });
+
+  app.post("/biometric/governance/proposals", async (req, reply) => {
+    const body = (req.body ?? {}) as {
+      title?: unknown;
+      purpose?: unknown;
+      requested_by?: unknown;
+      notes?: unknown;
+    };
+    try {
+      const proposal = await createBiometricGovernanceProposal({
+        title: typeof body.title === "string" ? body.title : "",
+        purpose: typeof body.purpose === "string" ? body.purpose : "",
+        requestedBy: typeof body.requested_by === "string" ? body.requested_by : "",
+        notes: typeof body.notes === "string" ? body.notes : undefined,
+      });
+      await reply.status(201).send(proposal);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await reply.status(400).send({ error: message });
+    }
+  });
+
+  app.get("/biometric/governance/proposals", async (_req, reply) => {
+    const payload = await listBiometricGovernanceProposals();
+    await reply.send(payload);
+  });
+
+  app.get("/biometric/governance/proposals/:id", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+    const proposal = await getBiometricGovernanceProposalById(id);
+    if (!proposal) {
+      await reply.status(404).send({ error: "not_found" });
+      return;
+    }
+    await reply.send({ proposal });
+  });
+
+  app.post("/biometric/governance/proposals/:id/submit", async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+    try {
+      const proposal = await submitBiometricGovernanceProposal(id);
+      await reply.send(proposal);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const statusCode = message === "proposal not found" ? 404 : 409;
+      await reply.status(statusCode).send({ error: message });
+    }
+  });
+
+  app.post("/biometric/governance/proposals/:id/reviews", async (req, reply) => {
+    const proposalId = (req.params as { id: string }).id;
+    const body = (req.body ?? {}) as {
+      review_type?: unknown;
+      decision?: unknown;
+      reviewer?: unknown;
+      rationale?: unknown;
+    };
+    try {
+      const proposal = await addBiometricGovernanceReview({
+        proposalId,
+        reviewType: typeof body.review_type === "string" ? body.review_type : "",
+        decision: typeof body.decision === "string" ? body.decision : "",
+        reviewer: typeof body.reviewer === "string" ? body.reviewer : "",
+        rationale: typeof body.rationale === "string" ? body.rationale : undefined,
+      });
+      await reply.send(proposal);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === "proposal not found") {
+        await reply.status(404).send({ error: message });
+        return;
+      }
+      if (
+        message === "proposal must be in draft status to submit" ||
+        message === "reviews are only allowed for submitted proposals" ||
+        message === "review decision already recorded for this review_type"
+      ) {
+        await reply.status(409).send({ error: message });
+        return;
+      }
+      await reply.status(400).send({ error: message });
+    }
+  });
+
+  app.get("/biometric/governance/status", async (_req, reply) => {
+    const payload = await getBiometricGovernanceStatus({
+      biometricResearchEnabled: env.BIOMETRIC_RESEARCH_ENABLED,
     });
     await reply.send(payload);
   });

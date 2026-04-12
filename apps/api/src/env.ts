@@ -25,6 +25,7 @@ const schema = z.object({
   MALWARE_SCAN_ENABLED: z.string().optional(),
   MALWARE_SCAN_BIN: z.string().default("clamscan"),
   MALWARE_SCAN_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  BIOMETRIC_RESEARCH_ENABLED: z.string().optional(),
 });
 
 const parsed = schema.parse(process.env);
@@ -35,10 +36,16 @@ mkdirSync(resolve(dataDir, "blobs"), { recursive: true });
 
 const databaseUrl = parsed.DATABASE_URL ?? resolve(dataDir, "axion.db");
 const malwareScanEnabled = parseBooleanEnv("MALWARE_SCAN_ENABLED", parsed.MALWARE_SCAN_ENABLED, false);
+const biometricResearchEnabled = parseBooleanEnv(
+  "BIOMETRIC_RESEARCH_ENABLED",
+  parsed.BIOMETRIC_RESEARCH_ENABLED,
+  false,
+);
 
 export const env = {
   ...parsed,
   DATA_DIR: dataDir,
   DATABASE_URL: databaseUrl,
   MALWARE_SCAN_ENABLED: malwareScanEnabled,
+  BIOMETRIC_RESEARCH_ENABLED: biometricResearchEnabled,
 };
