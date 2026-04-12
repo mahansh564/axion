@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -14,6 +14,9 @@ const scopedEnvKeys = [
   "PRIVACY_ADMIN_API_KEY",
   "AUDIO_RETENTION_CONFIRM_TOKEN",
   "MODEL_PRICE_OVERRIDES_JSON",
+  "MALWARE_SCAN_ENABLED",
+  "MALWARE_SCAN_BIN",
+  "MALWARE_SCAN_TIMEOUT_MS",
 ] as const;
 
 type ScopedEnvKey = (typeof scopedEnvKeys)[number];
@@ -32,6 +35,13 @@ function restoreScopedEnv(snapshot: ScopedEnvSnapshot): void {
   for (const key of scopedEnvKeys) {
     setScopedEnv(key, snapshot[key]);
   }
+}
+
+function writeScannerScript(root: string, scriptBody: string): string {
+  const scannerPath = join(root, "scan-fixture.sh");
+  writeFileSync(scannerPath, `#!/bin/sh\nset -eu\n${scriptBody}\n`, "utf8");
+  chmodSync(scannerPath, 0o755);
+  return scannerPath;
 }
 
 describe("axion api integration", () => {
@@ -2654,6 +2664,109 @@ describe("axion api integration", () => {
     } finally {
       await authApp?.close();
       rmSync(authRoot, { recursive: true, force: true });
+      restoreScopedEnv(envSnapshot);
+      vi.resetModules();
+    }
+  });
+
+  it("enforces malware scanner outcomes on voice upload when scanning is enabled", async () => {
+    const envSnapshot = captureScopedEnv();
+
+    async function runVoiceScanCase(input: {
+      suffix: string;
+      scannerScriptBody: string;
+      expectedStatus: number;
+      expectedError?: string;
+      expectedEventType: "malware_scan_clean" | "malware_scan_blocked" | "malware_scan_error";
+      expectedExperienceCount: number;
+      expectedDocumentCount: number;
+    }): Promise<void> {
+      const root = mkdtempSync(join(tmpdir(), `axion-api-malware-${input.suffix}-`));
+      const scannerPath = writeScannerScript(root, input.scannerScriptBody);
+      let malwareApp: Awaited<ReturnType<typeof import("./app.js").buildApp>> | undefined;
+      try {
+        process.env.DATA_DIR = root;
+        process.env.DATABASE_URL = join(root, "malware.db");
+        process.env.PYTHON_WORKER_URL = "http://worker.test";
+        process.env.API_KEY = "";
+        process.env.MALWARE_SCAN_ENABLED = "1";
+        process.env.MALWARE_SCAN_BIN = scannerPath;
+        process.env.MALWARE_SCAN_TIMEOUT_MS = "15000";
+
+        vi.resetModules();
+        const { runMigrations } = await import("./db/client.js");
+        runMigrations();
+        const { buildApp } = await import("./app.js");
+        malwareApp = await buildApp();
+        await malwareApp.ready();
+
+        const form = new FormData();
+        form.append("file", Buffer.from(`malware-case-${input.suffix}`), {
+          filename: `${input.suffix}.wav`,
+          contentType: "audio/wav",
+        });
+
+        const response = await malwareApp.inject({
+          method: "POST",
+          url: "/experiences/voice",
+          payload: form,
+          headers: form.getHeaders(),
+        });
+        expect(response.statusCode).toBe(input.expectedStatus);
+        if (input.expectedError) {
+          const body = JSON.parse(response.body) as { error: string };
+          expect(body.error).toBe(input.expectedError);
+        }
+
+        const { db } = await import("./db/client.js");
+        const { documents, episodicEvents, experienceRecords } = await import("./db/schema.js");
+        const experiences = await db.select().from(experienceRecords).all();
+        const docs = await db.select().from(documents).all();
+        expect(experiences.length).toBe(input.expectedExperienceCount);
+        expect(docs.length).toBe(input.expectedDocumentCount);
+
+        const scanEvents = await db
+          .select()
+          .from(episodicEvents)
+          .where(eq(episodicEvents.eventType, input.expectedEventType))
+          .all();
+        expect(scanEvents.length).toBeGreaterThan(0);
+      } finally {
+        await malwareApp?.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+
+    try {
+      await runVoiceScanCase({
+        suffix: "clean",
+        scannerScriptBody: "exit 0",
+        expectedStatus: 200,
+        expectedEventType: "malware_scan_clean",
+        expectedExperienceCount: 1,
+        expectedDocumentCount: 1,
+      });
+
+      await runVoiceScanCase({
+        suffix: "infected",
+        scannerScriptBody: "echo \"$2: Eicar-Test-Signature FOUND\"\nexit 1",
+        expectedStatus: 422,
+        expectedError: "malware_detected",
+        expectedEventType: "malware_scan_blocked",
+        expectedExperienceCount: 0,
+        expectedDocumentCount: 0,
+      });
+
+      await runVoiceScanCase({
+        suffix: "scanner-error",
+        scannerScriptBody: "echo \"scanner runtime failure\" >&2\nexit 2",
+        expectedStatus: 503,
+        expectedError: "malware_scan_failed",
+        expectedEventType: "malware_scan_error",
+        expectedExperienceCount: 0,
+        expectedDocumentCount: 0,
+      });
+    } finally {
       restoreScopedEnv(envSnapshot);
       vi.resetModules();
     }
