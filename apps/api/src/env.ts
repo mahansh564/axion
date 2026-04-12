@@ -10,6 +10,10 @@ const schema = z.object({
   WEB_APP_URL: z.string().url().default("http://127.0.0.1:5173"),
   PYTHON_WORKER_URL: z.string().url().default("http://127.0.0.1:8000"),
   MAX_UPLOAD_BYTES: z.coerce.number().default(52_428_800),
+  AUDIO_RETENTION_DAYS: z.coerce.number().int().nonnegative().default(30),
+  AUDIO_RETENTION_CONFIRM_TOKEN: z.string().optional(),
+  PRIVACY_ADMIN_API_KEY: z.string().optional(),
+  MODEL_PRICE_OVERRIDES_JSON: z.string().optional(),
 });
 
 const parsed = schema.parse(process.env);

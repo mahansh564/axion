@@ -21,8 +21,10 @@ import {
   ingestTextExperience,
   ingestVoiceNote,
   listDailyReflectionPrompts,
+  runAudioRetentionPolicy,
 } from "./experiencePipeline.js";
 import { withTrace } from "./log.js";
+import { listModelUsageMetrics } from "./modelUsage.js";
 import { getObserverNotesForRun, reviewPromotion } from "./observerPipeline.js";
 import {
   createOvernightSchedule,
@@ -149,6 +151,34 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     }
     const workerOk = await pythonHealth(traceId);
     return { ready: dbOk, db: dbOk, worker: workerOk };
+  });
+
+  app.get("/metrics/model-usage", async (req) => {
+    const query = (req.query ?? {}) as {
+      since_ms?: unknown;
+      until_ms?: unknown;
+      trace_id?: unknown;
+      operation?: unknown;
+      provider?: unknown;
+      model_id?: unknown;
+    };
+    const toStringOrUndefined = (value: unknown): string | undefined =>
+      typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+    const sinceMs = parseOptionalNumber(toStringOrUndefined(query.since_ms));
+    const untilMs = parseOptionalNumber(toStringOrUndefined(query.until_ms));
+    const traceId = toStringOrUndefined(query.trace_id);
+    const operation = toStringOrUndefined(query.operation);
+    const provider = toStringOrUndefined(query.provider);
+    const modelId = toStringOrUndefined(query.model_id);
+
+    return listModelUsageMetrics({
+      sinceMs,
+      untilMs,
+      traceId,
+      operation,
+      provider,
+      modelId,
+    });
   });
 
   app.post("/experiences/conversation", async (req, reply) => {

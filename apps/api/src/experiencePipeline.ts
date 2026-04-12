@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { eq } from "drizzle-orm";
+import { unlink, writeFile } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
+import { and, eq, isNotNull, lte } from "drizzle-orm";
 
 import { db } from "./db/client.js";
 import { documents, episodicEvents, experienceRecords, graphEdges, graphNodes } from "./db/schema.js";
 import { env } from "./env.js";
 import { withTrace } from "./log.js";
+import { recordModelUsageEvent } from "./modelUsage.js";
 import type { ExtractResult } from "./pythonClient.js";
 import { extractStructured, transcribeAudio } from "./pythonClient.js";
 
@@ -14,8 +15,16 @@ function now(): number {
   return Date.now();
 }
 
+const MILLIS_PER_DAY = 24 * 60 * 60 * 1000;
+
 function nodeKey(label: string): string {
   return label.toLowerCase();
+}
+
+function pathIsWithinDataDir(absPath: string): boolean {
+  const root = resolve(env.DATA_DIR);
+  if (absPath === root) return true;
+  return absPath.startsWith(`${root}${sep}`);
 }
 
 async function applyExtractionToGraph(input: { documentId: string; extraction: ExtractResult }): Promise<void> {
@@ -106,6 +115,14 @@ function samePersonLabel(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
+function inferTranscribeProvider(modelId: string): string | null {
+  const normalized = modelId.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.startsWith("faster-whisper")) return "faster-whisper";
+  if (normalized.startsWith("stub")) return "stub";
+  return null;
+}
+
 async function ingestStructuredTextExperience(input: {
   text: string;
   channel: string;
@@ -184,6 +201,21 @@ async function ingestStructuredTextExperience(input: {
     traceId: input.traceId,
   });
 
+  const extractionUsage = await recordModelUsageEvent({
+    traceId: input.traceId,
+    operation: "extract",
+    provider: extraction.usage?.provider ?? null,
+    modelId: extraction.usage?.model_id ?? extraction.model_id,
+    promptTokens: extraction.usage?.prompt_tokens ?? null,
+    completionTokens: extraction.usage?.completion_tokens ?? null,
+    totalTokens: extraction.usage?.total_tokens ?? null,
+    metadata: {
+      channel: input.channel,
+      experience_id: experienceId,
+      document_id: documentId,
+    },
+  });
+
   await applyExtractionToGraph({ documentId, extraction });
 
   await db.insert(episodicEvents).values({
@@ -194,6 +226,7 @@ async function ingestStructuredTextExperience(input: {
       document_id: documentId,
       model_id: extraction.model_id,
       entity_count: extraction.entities.length,
+      usage: extractionUsage,
     }),
     createdAt: now(),
   });
@@ -237,6 +270,20 @@ export async function ingestVoiceNote(input: {
     traceId: input.traceId,
   });
 
+  const transcribeUsage = await recordModelUsageEvent({
+    traceId: input.traceId,
+    operation: "transcribe",
+    provider: tr.usage?.provider ?? inferTranscribeProvider(tr.model_id),
+    modelId: tr.usage?.model_id ?? tr.model_id,
+    promptTokens: tr.usage?.prompt_tokens ?? null,
+    completionTokens: tr.usage?.completion_tokens ?? null,
+    totalTokens: tr.usage?.total_tokens ?? null,
+    metadata: {
+      channel: "voice",
+      experience_id: experienceId,
+    },
+  });
+
   const documentId = randomUUID();
   await db.insert(documents).values({
     id: documentId,
@@ -256,6 +303,7 @@ export async function ingestVoiceNote(input: {
       experience_id: experienceId,
       document_id: documentId,
       model_id: tr.model_id,
+      usage: transcribeUsage,
     }),
     createdAt: now(),
   });
@@ -268,6 +316,21 @@ export async function ingestVoiceNote(input: {
     traceId: input.traceId,
   });
 
+  const extractionUsage = await recordModelUsageEvent({
+    traceId: input.traceId,
+    operation: "extract",
+    provider: extraction.usage?.provider ?? null,
+    modelId: extraction.usage?.model_id ?? extraction.model_id,
+    promptTokens: extraction.usage?.prompt_tokens ?? null,
+    completionTokens: extraction.usage?.completion_tokens ?? null,
+    totalTokens: extraction.usage?.total_tokens ?? null,
+    metadata: {
+      channel: "voice",
+      experience_id: experienceId,
+      document_id: documentId,
+    },
+  });
+
   await applyExtractionToGraph({ documentId, extraction });
 
   await db.insert(episodicEvents).values({
@@ -278,11 +341,141 @@ export async function ingestVoiceNote(input: {
       document_id: documentId,
       model_id: extraction.model_id,
       entity_count: extraction.entities.length,
+      usage: extractionUsage,
     }),
     createdAt: now(),
   });
 
   return { experienceId, documentId };
+}
+
+export type AudioRetentionRunResult = {
+  dryRun: boolean;
+  retentionDays: number;
+  cutoffMs: number;
+  candidateCount: number;
+  deletedCount: number;
+  missingCount: number;
+  failedCount: number;
+  updatedRecords: number;
+};
+
+export async function runAudioRetentionPolicy(input: {
+  dryRun: boolean;
+  retentionDays: number;
+  traceId: string;
+}): Promise<AudioRetentionRunResult> {
+  const log = withTrace(input.traceId);
+  const retentionDays = Math.max(0, Math.floor(input.retentionDays));
+  const cutoffMs = now() - retentionDays * MILLIS_PER_DAY;
+
+  const candidates = await db
+    .select({
+      id: experienceRecords.id,
+      audioRelpath: experienceRecords.audioRelpath,
+    })
+    .from(experienceRecords)
+    .where(
+      and(
+        eq(experienceRecords.channel, "voice"),
+        isNotNull(experienceRecords.audioRelpath),
+        lte(experienceRecords.createdAt, cutoffMs),
+      ),
+    )
+    .all();
+
+  let deletedCount = 0;
+  let missingCount = 0;
+  let failedCount = 0;
+  const clearAudioPathsForExperienceIds: string[] = [];
+
+  if (!input.dryRun) {
+    for (const candidate of candidates) {
+      if (!candidate.audioRelpath) {
+        continue;
+      }
+      const absBlob = resolve(env.DATA_DIR, candidate.audioRelpath);
+      if (!pathIsWithinDataDir(absBlob)) {
+        failedCount += 1;
+        log.warn({
+          event: "audio_retention_invalid_relpath",
+          experience_id: candidate.id,
+          audio_relpath: candidate.audioRelpath,
+        });
+        continue;
+      }
+
+      try {
+        await unlink(absBlob);
+        deletedCount += 1;
+        clearAudioPathsForExperienceIds.push(candidate.id);
+      } catch (error) {
+        const code = typeof error === "object" && error && "code" in error ? String(error.code) : null;
+        if (code === "ENOENT") {
+          missingCount += 1;
+          clearAudioPathsForExperienceIds.push(candidate.id);
+          continue;
+        }
+        failedCount += 1;
+        log.warn({
+          event: "audio_retention_delete_failed",
+          experience_id: candidate.id,
+          audio_relpath: candidate.audioRelpath,
+          error: String(error),
+        });
+      }
+    }
+
+    for (const experienceId of clearAudioPathsForExperienceIds) {
+      await db
+        .update(experienceRecords)
+        .set({
+          audioRelpath: null,
+        })
+        .where(eq(experienceRecords.id, experienceId));
+    }
+  }
+
+  const result: AudioRetentionRunResult = {
+    dryRun: input.dryRun,
+    retentionDays,
+    cutoffMs,
+    candidateCount: candidates.length,
+    deletedCount,
+    missingCount,
+    failedCount,
+    updatedRecords: clearAudioPathsForExperienceIds.length,
+  };
+
+  await db.insert(episodicEvents).values({
+    id: randomUUID(),
+    eventType: "audio_retention_run",
+    traceId: input.traceId,
+    payload: JSON.stringify({
+      dry_run: result.dryRun,
+      retention_days: result.retentionDays,
+      cutoff_ms: result.cutoffMs,
+      candidate_count: result.candidateCount,
+      deleted_count: result.deletedCount,
+      missing_count: result.missingCount,
+      failed_count: result.failedCount,
+      updated_records: result.updatedRecords,
+    }),
+    createdAt: now(),
+  });
+
+  log.info({
+    event: "audio_retention_run",
+    dry_run: result.dryRun,
+    retention_days: result.retentionDays,
+    candidate_count: result.candidateCount,
+    deleted_count: result.deletedCount,
+    missing_count: result.missingCount,
+    failed_count: result.failedCount,
+    updated_records: result.updatedRecords,
+  });
+
+  return result;
 }
 
 export type TextExperienceChannel = "conversation" | "manual_log";

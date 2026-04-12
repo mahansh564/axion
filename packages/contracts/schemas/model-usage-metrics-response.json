@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://axion.local/schemas/model-usage-metrics-response.json",
+  "title": "ModelUsageMetricsResponse",
+  "type": "object",
+  "required": ["filters", "totals", "by_provider", "by_model", "by_operation"],
+  "properties": {
+    "filters": {
+      "type": "object",
+      "required": ["since_ms", "until_ms", "trace_id", "operation", "provider", "model_id"],
+      "properties": {
+        "since_ms": { "type": ["number", "null"] },
+        "until_ms": { "type": ["number", "null"] },
+        "trace_id": { "type": ["string", "null"] },
+        "operation": { "type": ["string", "null"] },
+        "provider": { "type": ["string", "null"] },
+        "model_id": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "totals": {
+      "$ref": "#/definitions/usageTotals"
+    },
+    "by_provider": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/providerUsageTotals"
+      }
+    },
+    "by_model": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/modelUsageTotals"
+      }
+    },
+    "by_operation": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/operationUsageTotals"
+      }
+    }
+  },
+  "definitions": {
+    "usageTotals": {
+      "type": "object",
+      "required": [
+        "call_count",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "estimated_cost_usd",
+        "costed_call_count",
+        "uncosted_call_count"
+      ],
+      "properties": {
+        "call_count": { "type": "number" },
+        "prompt_tokens": { "type": "number" },
+        "completion_tokens": { "type": "number" },
+        "total_tokens": { "type": "number" },
+        "estimated_cost_usd": { "type": "number" },
+        "costed_call_count": { "type": "number" },
+        "uncosted_call_count": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "providerUsageTotals": {
+      "type": "object",
+      "required": [
+        "provider",
+        "call_count",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "estimated_cost_usd",
+        "costed_call_count",
+        "uncosted_call_count"
+      ],
+      "properties": {
+        "provider": { "type": ["string", "null"] },
+        "call_count": { "type": "number" },
+        "prompt_tokens": { "type": "number" },
+        "completion_tokens": { "type": "number" },
+        "total_tokens": { "type": "number" },
+        "estimated_cost_usd": { "type": "number" },
+        "costed_call_count": { "type": "number" },
+        "uncosted_call_count": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "modelUsageTotals": {
+      "type": "object",
+      "required": [
+        "provider",
+        "model_id",
+        "call_count",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "estimated_cost_usd",
+        "costed_call_count",
+        "uncosted_call_count"
+      ],
+      "properties": {
+        "provider": { "type": ["string", "null"] },
+        "model_id": { "type": ["string", "null"] },
+        "call_count": { "type": "number" },
+        "prompt_tokens": { "type": "number" },
+        "completion_tokens": { "type": "number" },
+        "total_tokens": { "type": "number" },
+        "estimated_cost_usd": { "type": "number" },
+        "costed_call_count": { "type": "number" },
+        "uncosted_call_count": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "operationUsageTotals": {
+      "type": "object",
+      "required": [
+        "operation",
+        "call_count",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "estimated_cost_usd",
+        "costed_call_count",
+        "uncosted_call_count"
+      ],
+      "properties": {
+        "operation": { "type": "string" },
+        "call_count": { "type": "number" },
+        "prompt_tokens": { "type": "number" },
+        "completion_tokens": { "type": "number" },
+        "total_tokens": { "type": "number" },
+        "estimated_cost_usd": { "type": "number" },
+        "costed_call_count": { "type": "number" },
+        "uncosted_call_count": { "type": "number" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
