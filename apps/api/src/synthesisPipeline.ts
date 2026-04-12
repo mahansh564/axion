@@ -27,6 +27,14 @@ function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeOpenQuestionStatus(value: string): string {
+  const status = collapseWhitespace(value).toLowerCase();
+  if (!OPEN_QUESTION_STATUSES.has(status)) {
+    throw new Error("invalid open question status");
+  }
+  return status;
+}
+
 function parseJsonObject(value: string | null): Record<string, unknown> | null {
   if (!value) return null;
   try {
@@ -421,10 +429,7 @@ export async function createOpenQuestion(input: {
   created_at: number;
   updated_at: number;
 }> {
-  const status = (input.status ?? "open").toLowerCase();
-  if (!OPEN_QUESTION_STATUSES.has(status)) {
-    throw new Error("invalid open question status");
-  }
+  const status = normalizeOpenQuestionStatus(input.status ?? "open");
   const createdAt = now();
   const id = randomUUID();
   await db.insert(openQuestions).values({
@@ -464,7 +469,7 @@ export async function listOpenQuestions(input?: { status?: string; topic?: strin
   }>
 > {
   const clauses = [];
-  if (input?.status) clauses.push(eq(openQuestions.status, input.status.toLowerCase()));
+  if (input?.status !== undefined) clauses.push(eq(openQuestions.status, normalizeOpenQuestionStatus(input.status)));
   if (input?.topic) clauses.push(eq(openQuestions.topic, input.topic.toLowerCase()));
   const rows =
     clauses.length > 0
@@ -508,10 +513,7 @@ export async function updateOpenQuestion(
     throw new Error("open question not found");
   }
 
-  const nextStatus = patch.status ? patch.status.toLowerCase() : existing.status;
-  if (!OPEN_QUESTION_STATUSES.has(nextStatus)) {
-    throw new Error("invalid open question status");
-  }
+  const nextStatus = patch.status === undefined ? existing.status : normalizeOpenQuestionStatus(patch.status);
 
   const updatedAt = now();
   await db

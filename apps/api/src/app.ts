@@ -937,11 +937,16 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
 
   app.get("/open-questions", async (req, reply) => {
     const query = req.query as { status?: string; topic?: string };
-    const questions = await listOpenQuestions({
-      status: query.status,
-      topic: query.topic,
-    });
-    await reply.send({ open_questions: questions });
+    try {
+      const questions = await listOpenQuestions({
+        status: query.status,
+        topic: query.topic,
+      });
+      await reply.send({ open_questions: questions });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await reply.status(message === "invalid open question status" ? 400 : 409).send({ error: message });
+    }
   });
 
   app.patch("/open-questions/:id", async (req, reply) => {
