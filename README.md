@@ -27,6 +27,9 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
 | `API_KEY` | If set, protects all routes except `GET /health` and `GET /ready` (`Authorization: Bearer <key>`) |
 | `WEB_APP_URL` | URL used by API compatibility redirects for visualization paths (`http://127.0.0.1:5173` default) |
 | `MAX_UPLOAD_BYTES` | Multipart upload cap |
+| `MALWARE_SCAN_ENABLED` | Enable pre-ingest malware scanning on `POST /experiences/voice` (`0`/`1`, default `0`) |
+| `MALWARE_SCAN_BIN` | Scanner executable used when malware scanning is enabled (default `clamscan`) |
+| `MALWARE_SCAN_TIMEOUT_MS` | Scanner execution timeout in milliseconds (default `15000`) |
 | `AUDIO_RETENTION_DAYS` | Voice-blob retention window in days (default `30`) |
 | `PRIVACY_ADMIN_API_KEY` | Required bearer token for `/privacy/audio-retention/run` (route disabled when unset) |
 | `AUDIO_RETENTION_CONFIRM_TOKEN` | Required non-placeholder confirmation token for destructive audio-blob cleanup runs |
@@ -54,7 +57,7 @@ Copy `.env.example` to `.env` in the repo root (or set variables in your shell).
 
    - `GET /health` — process OK
    - `GET /ready` — SQLite OK + worker `/health` reachable
-   - `POST /experiences/voice` — multipart audio → transcript → graph + episodic events
+   - `POST /experiences/voice` — multipart audio → optional malware scan (when enabled) → transcript → graph + episodic events (`422 malware_detected` or `503 malware_scan_failed` on scanner gate failures)
    - `POST /experiences/conversation` — JSON body (`text`, optional `channel`: `conversation` \| `manual_log`, optional `title`) → stored log → same extraction + graph path as voice (no audio)
    - `POST /experiences/highlights` — JSON body (`highlight`, optional `annotation`, optional `source_kind`, optional `source_ref`, optional `mattered_score`) → highlight/annotation ingestion with mattered weighting metadata
    - `POST /experiences/social` — JSON body (`text`, `person`, optional `relationship`, optional `credibility`) → trusted social log + credibility-linked person edges
@@ -95,6 +98,7 @@ Structured logs use `pino`; each response includes `x-trace-id`, propagated to t
 
 - Research execution blocks non-public/untrusted fetch targets (for example `localhost`, private/link-local IPs, invalid schemes) and logs `research_untrusted_url_blocked` events.
 - Prompt-injection-like sentences in fetched web content are filtered before excerpt/claim persistence and logged as `research_prompt_injection_filtered`.
+- Malware scanning can be enabled for voice uploads; scan outcomes are logged as `malware_scan_clean`, `malware_scan_blocked`, or `malware_scan_error`.
 - Model-call accounting is emitted as `model_usage_recorded` events with normalized token counts and estimated USD cost where pricing is known.
 - QA retrieval uses SQLite FTS5/BM25 indexes for experience documents and research artifacts, and automatically falls back to keyword matching if FTS is unavailable.
 
