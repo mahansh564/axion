@@ -280,6 +280,44 @@ export const overnightSchedules = sqliteTable(
   ],
 );
 
+export const biometricResearchProposals = sqliteTable(
+  "biometric_research_proposals",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    purpose: text("purpose").notNull(),
+    requestedBy: text("requested_by").notNull(),
+    notes: text("notes"),
+    status: text("status").notNull(),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("biometric_research_proposals_status_idx").on(t.status),
+    index("biometric_research_proposals_updated_idx").on(t.updatedAt),
+  ],
+);
+
+export const biometricReviewDecisions = sqliteTable(
+  "biometric_review_decisions",
+  {
+    id: text("id").primaryKey(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => biometricResearchProposals.id, { onDelete: "cascade" }),
+    reviewType: text("review_type").notNull(),
+    decision: text("decision").notNull(),
+    reviewer: text("reviewer").notNull(),
+    rationale: text("rationale"),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("biometric_review_decisions_proposal_idx").on(t.proposalId),
+    index("biometric_review_decisions_review_type_idx").on(t.reviewType),
+    uniqueIndex("biometric_review_decisions_proposal_review_type_uidx").on(t.proposalId, t.reviewType),
+  ],
+);
+
 export const evaluationGoldenCases = sqliteTable(
   "evaluation_golden_cases",
   {
