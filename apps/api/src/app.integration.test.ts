@@ -2740,6 +2740,7 @@ describe("axion api integration", () => {
     const submitted = JSON.parse(submitRes.body) as {
       id: string;
       status: string;
+      updated_at: number;
     };
     expect(submitted.id).toBe(draftProposal.id);
     expect(submitted.status).toBe("submitted");
@@ -2763,9 +2764,11 @@ describe("axion api integration", () => {
     expect(ethicsApprove.statusCode).toBe(200);
     const ethicsBody = JSON.parse(ethicsApprove.body) as {
       status: string;
+      updated_at: number;
       reviews: Array<{ review_type: string; decision: string }>;
     };
     expect(ethicsBody.status).toBe("submitted");
+    expect(ethicsBody.updated_at).toBeGreaterThan(submitted.updated_at);
     expect(
       ethicsBody.reviews.some((review) => review.review_type === "ethics" && review.decision === "approved"),
     ).toBe(true);
@@ -2845,6 +2848,33 @@ describe("axion api integration", () => {
       headers: { "content-type": "application/json" },
     });
     expect(blockedAfterRejection.statusCode).toBe(409);
+
+    const { db } = await import("./db/client.js");
+    const { biometricResearchProposals, biometricReviewDecisions } = await import("./db/schema.js");
+    const invalidStatusId = randomUUID();
+    await expect(
+      db.insert(biometricResearchProposals).values({
+        id: invalidStatusId,
+        title: "Invalid status test row",
+        purpose: "Ensure proposal status check constraint is enforced",
+        requestedBy: "integration-suite",
+        notes: null,
+        status: "invalid-status",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    ).rejects.toThrow();
+    await expect(
+      db.insert(biometricReviewDecisions).values({
+        id: randomUUID(),
+        proposalId: draftProposal.id,
+        reviewType: "irb",
+        decision: "approved",
+        reviewer: "integration-suite",
+        rationale: null,
+        createdAt: Date.now(),
+      }),
+    ).rejects.toThrow();
   });
 
   it("enables biometric ingestion only when feature flag and approved proposal are both present", async () => {
