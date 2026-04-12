@@ -36,6 +36,14 @@ const STOP = new Set([
   "which",
 ]);
 
+const FTS_FALLBACK_ERROR_PATTERNS = [
+  "no such table: documents_fts",
+  "no such table: research_artifacts_fts",
+  "no such module: fts5",
+  "unable to use function match",
+  "malformed match expression",
+] as const;
+
 export function questionKeywords(q: string): string[] {
   return q
     .toLowerCase()
@@ -47,6 +55,28 @@ export function questionKeywords(q: string): string[] {
 function scoreBody(body: string, tokens: string[]): number {
   const lower = body.toLowerCase();
   return tokens.reduce((n, t) => n + (lower.includes(t) ? 1 : 0), 0);
+}
+
+function sanitizeFtsToken(token: string): string | null {
+  const normalized = token.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+  return normalized.length > 1 ? normalized : null;
+}
+
+function buildFtsQuery(tokens: string[]): string | null {
+  const normalized = [...new Set(tokens.map(sanitizeFtsToken).filter((token): token is string => Boolean(token)))];
+  if (normalized.length === 0) return null;
+  return normalized.map((token) => `${token}*`).join(" OR ");
+}
+
+function looksLikeFtsUnavailableError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return FTS_FALLBACK_ERROR_PATTERNS.some((pattern) => message.includes(pattern));
+}
+
+function scoreFromFtsRank(rank: unknown, tokenCount: number): number {
+  if (typeof rank !== "number" || !Number.isFinite(rank)) return 0;
+  const nonNegativeRank = Math.max(0, rank);
+  return Number((tokenCount / (1 + nonNegativeRank)).toFixed(6));
 }
 
 function parseMetadata(value: string | null): Record<string, unknown> {
@@ -75,10 +105,9 @@ function experienceBoost(kind: string, metadataJson: string | null): number {
   return matteredBoost + credibilityBoost;
 }
 
-export async function findDocumentsForQuestion(question: string): Promise<
+async function findDocumentsForQuestionLike(tokens: string[]): Promise<
   Array<{ id: string; body: string; score: number }>
 > {
-  const tokens = questionKeywords(question);
   if (tokens.length === 0) {
     const rows = await db
       .select({ id: documents.id, body: documents.body, kind: documents.kind, metadata: documents.metadata })
@@ -112,14 +141,72 @@ export async function findDocumentsForQuestion(question: string): Promise<
       };
     })
     .filter((r): r is { id: string; body: string; score: number } => r !== null)
-    .sort((a, b) => b.score - a.score || b.body.length - a.body.length)
+    .sort((a, b) => b.score - a.score || b.body.length - a.body.length || a.id.localeCompare(b.id))
     .slice(0, 20);
 }
 
-export async function findResearchArtifactsForQuestion(question: string): Promise<
-  Array<{ id: string; content: string; url: string | null; title: string | null; kind: string; score: number }>
+async function findDocumentsForQuestionFts(
+  tokens: string[],
+  ftsQuery: string,
+): Promise<Array<{ id: string; body: string; score: number }>> {
+  const kinds = sql.join(EXPERIENCE_RETRIEVAL_DOCUMENT_KINDS.map((kind) => sql`${kind}`), sql`, `);
+  const rows = await db.all<{
+    id: string;
+    body: string;
+    kind: string;
+    metadata: string | null;
+    rank: number;
+  }>(sql`
+    SELECT
+      d.id AS id,
+      d.body AS body,
+      d.kind AS kind,
+      d.metadata AS metadata,
+      bm25(documents_fts, 1.0) AS rank
+    FROM documents_fts
+    JOIN documents d ON d.id = documents_fts.document_id
+    WHERE documents_fts MATCH ${ftsQuery}
+      AND d.kind IN (${kinds})
+    ORDER BY rank ASC, d.id ASC
+    LIMIT 120
+  `);
+
+  return rows
+    .map((row) => ({
+      id: row.id,
+      body: row.body,
+      score: scoreFromFtsRank(row.rank, tokens.length) + experienceBoost(row.kind, row.metadata),
+    }))
+    .sort((a, b) => b.score - a.score || b.body.length - a.body.length || a.id.localeCompare(b.id))
+    .slice(0, 20);
+}
+
+export async function findDocumentsForQuestion(question: string): Promise<
+  Array<{ id: string; body: string; score: number }>
 > {
   const tokens = questionKeywords(question);
+  if (tokens.length === 0) {
+    return findDocumentsForQuestionLike(tokens);
+  }
+
+  const ftsQuery = buildFtsQuery(tokens);
+  if (!ftsQuery) {
+    return findDocumentsForQuestionLike(tokens);
+  }
+
+  try {
+    return await findDocumentsForQuestionFts(tokens, ftsQuery);
+  } catch (error) {
+    if (looksLikeFtsUnavailableError(error)) {
+      return findDocumentsForQuestionLike(tokens);
+    }
+    throw error;
+  }
+}
+
+async function findResearchArtifactsForQuestionLike(tokens: string[]): Promise<
+  Array<{ id: string; content: string; url: string | null; title: string | null; kind: string; score: number }>
+> {
   if (tokens.length === 0) {
     const rows = await db
       .select({
@@ -166,8 +253,72 @@ export async function findResearchArtifactsForQuestion(question: string): Promis
       score: scoreBody(`${row.title ?? ""} ${row.content}`, tokens),
     }))
     .filter((row) => row.score > 0)
-    .sort((a, b) => b.score - a.score || b.content.length - a.content.length)
+    .sort((a, b) => b.score - a.score || b.content.length - a.content.length || a.id.localeCompare(b.id))
     .slice(0, 20);
+}
+
+async function findResearchArtifactsForQuestionFts(
+  tokens: string[],
+  ftsQuery: string,
+): Promise<Array<{ id: string; content: string; url: string | null; title: string | null; kind: string; score: number }>> {
+  const artifactKinds = sql.join(["claim", "excerpt"].map((kind) => sql`${kind}`), sql`, `);
+  const rows = await db.all<{
+    id: string;
+    content: string;
+    url: string | null;
+    title: string | null;
+    kind: string;
+    rank: number;
+  }>(sql`
+    SELECT
+      ra.id AS id,
+      ra.content AS content,
+      ra.url AS url,
+      ra.title AS title,
+      ra.kind AS kind,
+      bm25(research_artifacts_fts, 1.8, 1.0) AS rank
+    FROM research_artifacts_fts
+    JOIN research_artifacts ra ON ra.id = research_artifacts_fts.artifact_id
+    WHERE research_artifacts_fts MATCH ${ftsQuery}
+      AND ra.kind IN (${artifactKinds})
+    ORDER BY rank ASC, ra.id ASC
+    LIMIT 240
+  `);
+
+  return rows
+    .map((row) => ({
+      id: row.id,
+      content: row.content,
+      url: row.url,
+      title: row.title,
+      kind: row.kind,
+      score: scoreFromFtsRank(row.rank, tokens.length),
+    }))
+    .sort((a, b) => b.score - a.score || b.content.length - a.content.length || a.id.localeCompare(b.id))
+    .slice(0, 20);
+}
+
+export async function findResearchArtifactsForQuestion(question: string): Promise<
+  Array<{ id: string; content: string; url: string | null; title: string | null; kind: string; score: number }>
+> {
+  const tokens = questionKeywords(question);
+  if (tokens.length === 0) {
+    return findResearchArtifactsForQuestionLike(tokens);
+  }
+
+  const ftsQuery = buildFtsQuery(tokens);
+  if (!ftsQuery) {
+    return findResearchArtifactsForQuestionLike(tokens);
+  }
+
+  try {
+    return await findResearchArtifactsForQuestionFts(tokens, ftsQuery);
+  } catch (error) {
+    if (looksLikeFtsUnavailableError(error)) {
+      return findResearchArtifactsForQuestionLike(tokens);
+    }
+    throw error;
+  }
 }
 
 export async function oneHopNeighbors(documentIds: string[]): Promise<{
