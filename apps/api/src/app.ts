@@ -748,7 +748,6 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
         return;
       }
       if (
-        message === "proposal must be in draft status to submit" ||
         message === "reviews are only allowed for submitted proposals" ||
         message === "review decision already recorded for this review_type"
       ) {

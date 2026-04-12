@@ -15,6 +15,11 @@ function now(): number {
   return Date.now();
 }
 
+function strictlyIncreasingTimestamp(previous: number): number {
+  const candidate = now();
+  return candidate > previous ? candidate : previous + 1;
+}
+
 function asProposalStatus(value: string): ProposalStatus {
   if (value === "draft" || value === "submitted" || value === "approved" || value === "rejected") {
     return value;
@@ -173,7 +178,7 @@ export async function submitBiometricGovernanceProposal(id: string): Promise<Bio
   const proposal = await db.select().from(biometricResearchProposals).where(eq(biometricResearchProposals.id, id)).get();
   if (!proposal) throw new Error("proposal not found");
   if (proposal.status !== "draft") throw new Error("proposal must be in draft status to submit");
-  const updatedAt = now();
+  const updatedAt = strictlyIncreasingTimestamp(proposal.updatedAt);
   await db
     .update(biometricResearchProposals)
     .set({
@@ -242,11 +247,12 @@ export async function addBiometricGovernanceReview(input: {
     }
   }
 
+  const updatedAt = strictlyIncreasingTimestamp(proposal.updatedAt);
   await db
     .update(biometricResearchProposals)
     .set({
       status: nextStatus,
-      updatedAt: now(),
+      updatedAt,
     })
     .where(eq(biometricResearchProposals.id, proposalId));
 
