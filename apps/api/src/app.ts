@@ -89,6 +89,12 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     return value && value.length > 0 ? value : null;
   }
 
+  function bearerToken(value: unknown): string | null {
+    if (typeof value !== "string" || !value.startsWith("Bearer ")) return null;
+    const token = value.slice("Bearer ".length).trim();
+    return token.length > 0 ? token : null;
+  }
+
   function parseOptionalNumber(value: string | undefined): number | undefined {
     if (!value) return undefined;
     const n = Number(value);
@@ -98,6 +104,14 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
   function parseOptionalUnitNumber(value: unknown): number | undefined {
     if (value === undefined) return undefined;
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) return undefined;
+    return value;
+  }
+
+  function parseOptionalNonNegativeInteger(value: unknown): number | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+      return undefined;
+    }
     return value;
   }
 
@@ -116,9 +130,7 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     reply.header("x-trace-id", traceId);
     const path = pathOnly(req.url);
     if (env.API_KEY && path !== "/health" && path !== "/ready") {
-      const auth = req.headers.authorization;
-      const bearer =
-        typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice("Bearer ".length).trim() : null;
+      const bearer = bearerToken(req.headers.authorization);
       const queryApiKey = apiKeyFromUrl(req.url);
       const ok = bearer === env.API_KEY || queryApiKey === env.API_KEY;
       if (!ok) {
@@ -400,6 +412,71 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
       log.error({ event: "voice_ingest_err", err: String(e) });
       await reply.status(502).send({ error: "ingest_failed", detail: String(e) });
     }
+  });
+
+  app.post("/privacy/audio-retention/run", async (req, reply) => {
+    const traceId = (req as FastifyRequest & { traceId: string }).traceId;
+    const log = withTrace(traceId);
+    const adminApiKey = env.PRIVACY_ADMIN_API_KEY?.trim();
+    if (!adminApiKey) {
+      await reply.status(503).send({ error: "privacy retention admin auth not configured" });
+      return;
+    }
+    const bearer = bearerToken(req.headers.authorization) ?? "";
+    if (bearer !== adminApiKey) {
+      await reply.status(401).send({ error: "unauthorized" });
+      return;
+    }
+
+    const body = (req.body ?? {}) as {
+      dry_run?: unknown;
+      retention_days?: unknown;
+      confirm_token?: unknown;
+    };
+
+    const dryRun = body.dry_run === undefined ? true : body.dry_run === true;
+    if (body.dry_run !== undefined && typeof body.dry_run !== "boolean") {
+      await reply.status(400).send({ error: "dry_run must be a boolean" });
+      return;
+    }
+
+    const retentionDays = parseOptionalNonNegativeInteger(body.retention_days);
+    if (body.retention_days !== undefined && retentionDays === undefined) {
+      await reply.status(400).send({ error: "retention_days must be a non-negative integer" });
+      return;
+    }
+
+    const confirmToken = typeof body.confirm_token === "string" ? body.confirm_token : "";
+    const configuredConfirmToken = env.AUDIO_RETENTION_CONFIRM_TOKEN?.trim();
+    if (
+      !dryRun &&
+      (!configuredConfirmToken || configuredConfirmToken.toUpperCase() === "DELETE_AUDIO_BLOBS")
+    ) {
+      await reply.status(503).send({ error: "destructive retention disabled: set AUDIO_RETENTION_CONFIRM_TOKEN" });
+      return;
+    }
+    if (!dryRun && confirmToken !== configuredConfirmToken) {
+      await reply.status(403).send({ error: "confirm_token mismatch" });
+      return;
+    }
+
+    const result = await runAudioRetentionPolicy({
+      dryRun,
+      retentionDays: retentionDays ?? env.AUDIO_RETENTION_DAYS,
+      traceId,
+    });
+
+    log.info({ event: "privacy_audio_retention_completed", ...result });
+    await reply.send({
+      dry_run: result.dryRun,
+      retention_days: result.retentionDays,
+      cutoff_ms: result.cutoffMs,
+      candidate_count: result.candidateCount,
+      deleted_count: result.deletedCount,
+      missing_count: result.missingCount,
+      failed_count: result.failedCount,
+      updated_records: result.updatedRecords,
+    });
   });
 
   app.post("/research/runs", async (req, reply) => {
