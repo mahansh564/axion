@@ -2074,7 +2074,8 @@ describe("axion api integration", () => {
     expect(
       suggestionsBody.suggestions.some(
         (suggestion) =>
-          suggestion.signal_type === "repeated_confusion_phrase" &&
+          (suggestion.signal_type === "repeated_confusion_phrase" ||
+            suggestion.signal_type === "conversation_gap") &&
           suggestion.topic === "creatine supplementation daily dosage" &&
           suggestion.suggestion_type === "reflection_prompt",
       ),

@@ -21,6 +21,11 @@ import {
   resolveContradiction,
 } from "./contradictionPipeline.js";
 import { listCuriositySuggestions } from "./curiosityPipeline.js";
+import {
+  autoDetectAndFlagStaleItems,
+  listStaleEdgeCandidates,
+  resolveStaleEdge,
+} from "./staleEdgePipeline.js";
 import { env } from "./env.js";
 import {
   ingestDailyReflection,
@@ -962,6 +967,74 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     const payload = await listContradictionResolutions({
       candidateId: query.candidate_id,
       limit: parseOptionalNumber(query.limit),
+    });
+    await reply.send(payload);
+  });
+
+  app.get("/stale-edge/candidates", async (req, reply) => {
+    const query = req.query as {
+      topic?: string;
+      min_confidence?: string;
+      stale_days?: string;
+      limit?: string;
+    };
+    const payload = await listStaleEdgeCandidates({
+      topic: query.topic,
+      minConfidence: parseOptionalNumber(query.min_confidence),
+      staleDays: parseOptionalNumber(query.stale_days),
+      limit: parseOptionalNumber(query.limit),
+    });
+    await reply.send(payload);
+  });
+
+  app.post("/stale-edge/resolve", async (req, reply) => {
+    const traceId = (req as FastifyRequest & { traceId: string }).traceId;
+    const body = (req.body ?? {}) as {
+      candidate_id?: unknown;
+      decision?: unknown;
+      refresh_statement?: unknown;
+      refresh_confidence?: unknown;
+      rationale?: unknown;
+    };
+    if (typeof body.candidate_id !== "string" || !body.candidate_id.trim()) {
+      await reply.status(400).send({ error: "candidate_id required" });
+      return;
+    }
+    if (
+      typeof body.decision !== "string" ||
+      !["refresh_belief", "archive_belief", "schedule_research", "ignore"].includes(body.decision)
+    ) {
+      await reply.status(400).send({ error: "decision must be refresh_belief|archive_belief|schedule_research|ignore" });
+      return;
+    }
+
+    try {
+      const payload = await resolveStaleEdge({
+        candidateId: body.candidate_id,
+        decision: body.decision as "refresh_belief" | "archive_belief" | "schedule_research" | "ignore",
+        traceId,
+        refreshStatement: typeof body.refresh_statement === "string" ? body.refresh_statement : undefined,
+        refreshConfidence: typeof body.refresh_confidence === "number" ? body.refresh_confidence : undefined,
+        rationale: typeof body.rationale === "string" ? body.rationale : undefined,
+      });
+      await reply.status(201).send(payload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await reply.status(message.includes("invalid") ? 400 : 500).send({ error: message });
+    }
+  });
+
+  app.post("/stale-edge/detect", async (req, reply) => {
+    const traceId = (req as FastifyRequest & { traceId: string }).traceId;
+    const body = (req.body ?? {}) as {
+      stale_days?: unknown;
+      auto_schedule_research?: unknown;
+    };
+
+    const payload = await autoDetectAndFlagStaleItems({
+      traceId,
+      staleDays: parseOptionalNumber(typeof body.stale_days === "number" ? String(body.stale_days) : undefined),
+      autoScheduleResearch: body.auto_schedule_research === true,
     });
     await reply.send(payload);
   });
