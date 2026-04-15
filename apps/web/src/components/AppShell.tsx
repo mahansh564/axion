@@ -28,10 +28,13 @@ export function AppShell({ children }: { children: ReactNode }): JSX.Element {
             <Link to="/beliefs/graph" className="text-sm font-semibold tracking-wide text-slate-900">
               Axion Visualization
             </Link>
-            <div className="inline-flex rounded-lg bg-slate-100 p-1">
+            <div className="inline-flex flex-wrap rounded-lg bg-slate-100 p-1">
               <NavItem to="/beliefs/graph" label="Graph" />
               <NavItem to="/beliefs/timeline" label="Timeline" />
               <NavItem to="/runs/demo/replay" label="Replay" />
+              <NavItem to="/stale-edges" label="Stale" />
+              <NavItem to="/curiosity" label="Curiosity" />
+              <NavItem to="/contradictions" label="Contradictions" />
             </div>
           </div>
           <div className="grid w-full max-w-md gap-1">
